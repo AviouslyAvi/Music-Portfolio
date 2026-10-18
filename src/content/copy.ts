@@ -94,3 +94,25 @@ export const COLLAB = {
   title: 'Work with me',
   body: 'Send a rough idea, a voice note, or just a mood. I will turn it into something you can live in.',
 };
+
+export const CONTACT = {
+  title: 'Say hello',
+  lede: 'Send a link to a voice note, a rough idea, or a mood. Nothing needs to be finished, and nothing needs to be explained well.',
+  invitation: 'A link to a voice note, a rough idea, or a mood.',
+  labels: {
+    name: 'Your name',
+    email: 'Your email',
+    message: 'What are you imagining',
+    link: 'Link (optional)',
+    submit: 'Send',
+    pending: 'Sending',
+  },
+  errors: {
+    name: 'Please add your name.',
+    email: 'Please enter a valid email address.',
+    message: 'Please write a message of up to 5000 characters.',
+    link: 'Please use a link starting with http or https.',
+    send: 'That did not go through. Your message is still here, so you can try again in a moment.',
+  },
+  success: 'Thank you. Your message is in, and I will reply by email.',
+};

@@ -171,3 +171,20 @@ p { margin: 0 0 1.1rem; }
 .footer-nav a { color: var(--muted); text-decoration: none; padding: 0.35rem 0; }
 .footer-nav a:hover { color: var(--lamp); }
 .footer-note { margin: 0; font-size: 0.85rem; color: var(--muted); }
+
+/* ---------- contact form ---------- */
+.contact-form { display: grid; gap: 1.4rem; max-width: 36rem; margin-top: 2rem; }
+.form-hint { margin: 0; color: var(--muted); }
+.field { display: grid; gap: 0.45rem; }
+.field label { font-size: 0.75rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--lamp); }
+.field input, .field textarea {
+  width: 100%; padding: 0.8rem 1rem; font: inherit; color: var(--text);
+  background: var(--charcoal-2); border: 1px solid var(--walnut); border-radius: 0;
+}
+.field input:focus-visible, .field textarea:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; }
+.field input[aria-invalid='true'], .field textarea[aria-invalid='true'] { border-color: var(--accent-maroon); }
+.field-error { margin: 0; font-size: 0.9rem; color: var(--lamp); }
+.hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.contact-form .btn { cursor: pointer; font: inherit; }
+.contact-form .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.form-success { max-width: 36rem; margin-top: 2rem; padding: 1.2rem 1.4rem; background: var(--charcoal-2); border-left: 2px solid var(--lamp); }
