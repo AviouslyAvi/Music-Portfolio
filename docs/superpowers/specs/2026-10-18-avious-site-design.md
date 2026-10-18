@@ -88,6 +88,13 @@ My calls (Avi to confirm or change):
 - The iPod's tracks are the portfolio, and they come from Avi's finished work.
 - Fallback also covers no-WebGL and reduced-motion, and builder decides the threshold for slow devices.
 - Generic DAW screen; pre-rendered demo audio; serif plus sans type.
+- **Routing:** the room lives only at `/`. Every other URL (`/services`, `/work`, `/premonition`, `/about`, `/contact`) is a normal page that never loads 3D, so deep links and search results land on readable content. The Enter screen shows only at `/`. A persistent "Leave the room" control goes to the normal site at any time, not only through the computer.
+- **Loading budget:** the 3D route loads only after the visitor chooses Enter, targets about 2 MB or less gzipped for code plus assets, and should be walkable within about 5 seconds on a laptop five or more years old. Builder tunes the exact numbers; going over means cutting geometry, not shipping.
+- **Assets:** build with placeholder audio and a clearly marked swap step. Avi owns the rights to the tracks and demo sounds; anything with samples or client rights stays off the iPod until Avi says so.
+- **Hosting and review:** Vercel preview URLs are fine for review. The old site has only `/` and `/contact.html`, so `contact.html` redirects to `/contact`. No other SEO continuity work is needed.
+- **Contact:** a simple form that sends an email to Avi, with no file upload. The "voice note" line becomes an invitation to include a link to one. No account or database is needed for this.
+- **Analytics:** basic privacy-friendly page and event counts only (demo played, skipped, Premonition page viewed), with no cookies and so no consent banner. This measures whether visitors see Premonition.
+- **Windows:** the site leaves out any Windows claim until a Windows build ships.
 
 ## Left to the builder
 
