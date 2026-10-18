@@ -69,7 +69,7 @@ Existing copy to reuse and adapt from the current site (`index.html`): the hero 
 - A 3D version for phones.
 - Photoreal rendering, or imported 3D models. The room is built in code from **simple shapes**.
 - Live in-browser audio processing for the demo.
-- Selling services or accounts on day one beyond what Premonition's own storefront needs (see open items).
+- User accounts, license keys, in-site checkout, order history, or any database for Premonition. Purchase happens on a third-party store (decided). If accounts come later, that is a new project.
 
 ## Anti-goals
 
@@ -81,7 +81,7 @@ Existing copy to reuse and adapt from the current site (`index.html`): the hero 
 
 ## Constraints and decisions
 
-Decided by Avi: Next.js and three.js; the walk-in room concept; keyboard and mouse movement; mobile gets the normal site; charcoal and walnut; the computer boots into Premonition and a DAW; a few chosen sounds; about 3 seconds; skip stays; the room is built from simple shapes; Premonition is the only plugin shown; the six DAWs are listed; business and portfolio together.
+Decided by Avi: **the site ships with the free Premonition demo and a "Buy" link out to a third-party store, with no accounts**; Next.js and three.js; the walk-in room concept; keyboard and mouse movement; mobile gets the normal site; charcoal and walnut; the computer boots into Premonition and a DAW; a few chosen sounds; about 3 seconds; skip stays; the room is built from simple shapes; Premonition is the only plugin shown; the six DAWs are listed; business and portfolio together.
 
 My calls (Avi to confirm or change):
 - **Stack:** Next.js (App Router) with the 3D room as a client-only, lazily loaded route using three.js, so phones never download it. Hosting on Vercel, matching Premonition's own decision. The current GitHub Pages deploy of `main` stays untouched until the owner switches the domain.
@@ -102,4 +102,4 @@ Scene composition and camera feel, collision and movement tuning, the boot seque
 
 ## Open items
 
-Listed so the plan can account for them: which tracks go on the iPod and whether Avi has masters ready; which three or so sounds to render for the demo; what the Premonition purchase path is on this site (storefront, accounts, license delivery) given that Premonition's own account scope is still open; the domain and hosting switch from imavious.org on GitHub Pages.
+Listed so the plan can account for them: which tracks go on the iPod and whether Avi has masters ready; which three or so sounds to render for the demo; which third-party store sells Premonition (the Buy link needs a destination; the builder uses a placeholder until Avi picks one); where the free demo file is hosted (builder's call: a direct download from the site unless the chosen store hosts it); when the launch price moves from $19.99 to $24.99, which the store controls; the domain and hosting switch from imavious.org on GitHub Pages.
