@@ -1,0 +1,29 @@
+:root {
+  --charcoal: #23262a;
+  --charcoal-2: #2d3136;
+  --walnut: #5b3f2c;
+  --lamp: #e9a85f;
+  --text: #efe6d8;
+  --muted: #b9ad9c;
+  --accent-maroon: #6e2330;
+
+  --font-serif: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { color-scheme: dark; }
+
+body {
+  margin: 0;
+  background: var(--charcoal);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { font-family: var(--font-serif); font-weight: 500; line-height: 1.15; }
+
+a { color: var(--lamp); }

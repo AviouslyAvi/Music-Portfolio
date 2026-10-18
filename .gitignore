@@ -11,10 +11,18 @@ Desktop.ini
 
 # Node (in case you add build tools later)
 node_modules/
-package-lock.json
 
 # Misc
 *.log
 
 # Brainstorm companion
 .superpowers/
+
+# Next.js
+.next/
+node_modules/
+.env*.local
+next-env.d.ts
+test-results/
+playwright-report/
+tsconfig.tsbuildinfo
