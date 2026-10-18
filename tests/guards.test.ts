@@ -52,6 +52,7 @@ describe('guard patterns can fail', () => {
   it('jam room / remote recording', () => {
     for (const bad of ['Jam Room', 'jamroom', 'jam-room', 'jam_room', 'Remote Recording', 'remote-record', 'remoterecord']) expect(JAM_REMOTE.test(bad)).toBe(true);
     expect(JAM_REMOTE.test('jam session')).toBe(false);
+    expect(JAM_REMOTE.test('jam.room')).toBe(false);
   });
   it('windows and real-time', () => {
     expect(WINDOWS.test('Works on Windows')).toBe(true);
@@ -66,6 +67,9 @@ describe('guard patterns can fail', () => {
 });
 
 describe('content guards', () => {
+  it('scans a non-empty src/content (guards are not vacuous)', () => {
+    expect(contentFiles.length).toBeGreaterThan(0);
+  });
   it('never mentions the Jam Room or remote recording', () => {
     expect(offenders(sourceFiles, JAM_REMOTE)).toEqual([]);
   });
