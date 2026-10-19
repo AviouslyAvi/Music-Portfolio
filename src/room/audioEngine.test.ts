@@ -345,4 +345,79 @@ describe('TrackPlayer', () => {
     expect(o[0]).toBeCloseTo(0);
     expect(o[2]).toBeCloseTo(-1);
   });
+
+  const active = (h: ReturnType<typeof makeCtx>) => h.sources.filter((x) => x.started > x.stopped).length;
+
+  it('next() called while start() is loading waits, leaving one active source', async () => {
+    const h = makeCtx();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+    const s = p.start();
+    const n = p.next();
+    await s;
+    await settle();
+    await n;
+    expect(p.index).toBe(1);
+    expect(active(h)).toBe(1);
+    p.dispose();
+    expect(active(h)).toBe(0);
+  });
+
+  it('next() before start() calls start() first, then advances', async () => {
+    const h = makeCtx();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+    const n = p.next();
+    await settle();
+    await n;
+    expect(p.index).toBe(1);
+    expect(active(h)).toBe(1);
+    p.dispose();
+    expect(active(h)).toBe(0);
+  });
+
+  it('next() right after dispose does nothing', async () => {
+    const h = makeCtx();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+    await p.start();
+    p.dispose();
+    await expect(p.next()).resolves.toBeUndefined();
+    expect(h.sources).toHaveLength(1);
+    expect(active(h)).toBe(0);
+  });
+
+  it('caches decoded buffers: one fetch per track over a full loop', async () => {
+    const h = makeCtx();
+    const f = makeFetch();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, f);
+    await p.start();
+    for (let k = 0; k < 4; k++) {
+      const n = p.next();
+      await settle();
+      await n;
+    }
+    expect(f).toHaveBeenCalledTimes(TRACKS.length);
+  });
+
+  it('a throwing onError callback does not break the engine', async () => {
+    const h = makeCtx();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch(['a']));
+    const seen: string[] = [];
+    p.onError(() => {
+      throw new Error('listener bug');
+    });
+    p.onError((e) => seen.push(e.trackId));
+    await expect(p.start()).resolves.toBeUndefined();
+    expect(seen).toEqual(['a']);
+    expect(p.index).toBe(1);
+  });
+
+  it('dispose clears error callbacks', async () => {
+    const h = makeCtx();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch(['a']));
+    const cb = vi.fn();
+    p.onError(cb);
+    const s = p.start();
+    p.dispose();
+    await s;
+    expect(cb).not.toHaveBeenCalled();
+  });
 });

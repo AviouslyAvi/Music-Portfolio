@@ -10,6 +10,8 @@ import { SPEAKER_LEFT, SPEAKER_RIGHT } from './layout';
 //     onError fires once per track and playback stays silent; no retry loop,
 //     no throw. During next(), if no other track works, the current one keeps
 //     playing.
+//     next() before or during start() waits for start() (calling it if needed)
+//     and then advances, so only one source ever plays.
 //  c) The playlist loops (next() wraps to the first track). Each track also
 //     loops until next() is called. With a single track next() does nothing.
 //  d) start() resumes a suspended context. A rejected resume is reported
@@ -116,10 +118,12 @@ export class TrackPlayer {
   }
 
   next(): Promise<void> {
-    if (this.disposed || !this.startPromise) return Promise.resolve();
+    if (this.disposed) return Promise.resolve();
     if (this.inFlight) return this.inFlight;
     if (this.tracks.length < 2) return Promise.resolve();
-    const run = this.doNext().finally(() => {
+    // Serialized with start(): next() first awaits start() (calling it when it
+    // has not been called yet), then advances, so exactly one source plays.
+    const run = this.start().then(() => this.doNext()).finally(() => {
       if (this.inFlight === run) this.inFlight = null;
     });
     this.inFlight = run;
@@ -132,13 +136,20 @@ export class TrackPlayer {
     if (this.current) this.teardown(this.current);
     this.current = null;
     this.settleFade?.();
+    this.errorCbs.length = 0;
     for (const p of this.panners) p.disconnect();
     this.master.disconnect();
     this.buffers.clear();
   }
 
   private emitError(trackId: string): void {
-    for (const cb of this.errorCbs) cb({ trackId });
+    for (const cb of [...this.errorCbs]) {
+      try {
+        cb({ trackId });
+      } catch {
+        // a faulty listener must not break playback
+      }
+    }
   }
 
   private async doStart(): Promise<void> {
@@ -155,6 +166,7 @@ export class TrackPlayer {
       const buf = await this.load(this.tracks[i]);
       if (this.disposed) return;
       if (!buf) continue;
+      if (this.current) return; // never clobber a source something else claimed
       this._index = i;
       this.current = this.play(buf, 1);
       return;
@@ -162,6 +174,7 @@ export class TrackPlayer {
   }
 
   private async doNext(): Promise<void> {
+    if (this.disposed || !this.current) return; // nothing playing: stay silent
     const n = this.tracks.length;
     for (let step = 1; step < n; step++) {
       const i = (this._index + step) % n;
