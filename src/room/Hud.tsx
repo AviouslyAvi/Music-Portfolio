@@ -10,20 +10,27 @@ export type Interactable = 'ipod' | 'computer';
 export function Hud({
   nearby,
   trackTitle,
+  audioError = false,
   onInteract,
   onLeave,
 }: {
   nearby: Interactable | null;
   trackTitle: string;
+  /** The music could not load or play: show a quiet line instead of the title. */
+  audioError?: boolean;
   onInteract: (t: Interactable) => void;
   onLeave: () => void;
 }) {
   return (
     <div className={styles.hud}>
-      {trackTitle && (
-        <p className={styles.nowPlaying}>
-          <span className={styles.label}>{ROOM.nowPlaying}</span> {trackTitle}
-        </p>
+      {audioError ? (
+        <p className={styles.nowPlaying}>{ROOM.audioUnavailable}</p>
+      ) : (
+        trackTitle && (
+          <p className={styles.nowPlaying}>
+            <span className={styles.label}>{ROOM.nowPlaying}</span> {trackTitle}
+          </p>
+        )
       )}
       <p className={styles.nearby} aria-live="polite">
         {nearby === 'ipod' ? ROOM.nearbyIpod : nearby === 'computer' ? ROOM.nearbyComputer : ''}

@@ -33,6 +33,26 @@ export function crossfadeGains(t: number, duration: number): { out: number; in: 
   return { out: Math.cos((p * Math.PI) / 2), in: Math.sin((p * Math.PI) / 2) };
 }
 
+/** Id reported through onError when the audio context could not be resumed. */
+export const AUDIO_CONTEXT_ERROR = 'audio-context';
+
+/**
+ * True when the HUD should say audio is unavailable instead of naming a track:
+ * the context could not resume, the current track failed, or every track failed.
+ */
+export function isAudioUnavailable(
+  failures: readonly string[],
+  tracks: ReadonlyArray<{ id: string }>,
+  index: number,
+): boolean {
+  if (failures.length === 0) return false;
+  const failed = new Set(failures);
+  if (failed.has(AUDIO_CONTEXT_ERROR)) return true;
+  const current = tracks[index];
+  if (current && failed.has(current.id)) return true;
+  return tracks.length > 0 && tracks.every((t) => failed.has(t.id));
+}
+
 type Live = { source: AudioBufferSourceNode; gain: GainNode };
 type FetchFn = (url: string) => Promise<{ ok: boolean; arrayBuffer(): Promise<ArrayBuffer> }>;
 
@@ -158,7 +178,7 @@ export class TrackPlayer {
       try {
         await this.ctx.resume();
       } catch {
-        this.emitError('audio-context');
+        this.emitError(AUDIO_CONTEXT_ERROR);
       }
     }
     for (let i = 0; i < this.tracks.length; i++) {

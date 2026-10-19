@@ -10,7 +10,12 @@ import { TrackPlayer } from './audioEngine';
 import type { RoomAudio } from './RoomExperience';
 import styles from './room.module.css';
 
-type RoomProps = { onLeave: () => void; onFail: () => void; audio?: RoomAudio | null };
+type RoomProps = {
+  onLeave: () => void;
+  onFail: () => void;
+  audio?: RoomAudio | null;
+  audioFailures?: string[];
+};
 
 /** Stands in for the room when its chunk cannot load: reports the failure once mounted. */
 function FailOnMount({ onFail }: RoomProps) {
@@ -68,13 +73,15 @@ function writeLeft(): void {
 }
 
 /** Create the audio context and start the playlist inside the click gesture. */
-function startAudio(): RoomAudio | null {
+function startAudio(onError: (trackId: string) => void): RoomAudio | null {
   try {
     const w = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
     const AC = w.AudioContext ?? w.webkitAudioContext;
     if (!AC) return null;
     const ctx = new AC();
     const player = new TrackPlayer(ctx, TRACKS, ctx.destination);
+    // Subscribe before start() so an early failure (context resume, first fetch) is not missed.
+    player.onError((e) => onError(e.trackId));
     player.start().catch(() => {});
     return { ctx, player };
   } catch {
@@ -99,6 +106,8 @@ function stopAudio(audio: RoomAudio | null): void {
 export function RoomGate() {
   const [state, setState] = useState<GateState>('checking');
   const [audio, setAudio] = useState<RoomAudio | null>(null);
+  // Track ids (or 'audio-context') that failed, for the HUD's error line.
+  const [audioFailures, setAudioFailures] = useState<string[]>([]);
   const audioRef = useRef<RoomAudio | null>(null);
   const enteredRef = useRef(false);
   const enterBtn = useRef<HTMLButtonElement>(null);
@@ -174,7 +183,7 @@ export function RoomGate() {
     if (enteredRef.current) return;
     enteredRef.current = true;
     track('room_entered');
-    const a = startAudio();
+    const a = startAudio((id) => setAudioFailures((prev) => (prev.includes(id) ? prev : [...prev, id])));
     audioRef.current = a;
     setAudio(a);
     setState('room');
@@ -216,7 +225,7 @@ export function RoomGate() {
     return (
       <div ref={rootRef}>
         <RoomBoundary onError={onFail}>
-          <RoomExperience onLeave={onLeave} onFail={onFail} audio={audio} />
+          <RoomExperience onLeave={onLeave} onFail={onFail} audio={audio} audioFailures={audioFailures} />
         </RoomBoundary>
       </div>
     );

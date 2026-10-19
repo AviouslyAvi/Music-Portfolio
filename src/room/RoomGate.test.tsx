@@ -9,7 +9,8 @@ const h = vi.hoisted(() => ({
   dispose: vi.fn(),
   ctor: vi.fn(),
   close: vi.fn(() => Promise.resolve()),
-  roomProps: [] as Array<{ onLeave: () => void; onFail: () => void }>,
+  roomProps: [] as Array<{ onLeave: () => void; onFail: () => void; audioFailures?: string[] }>,
+  errorCbs: [] as Array<(e: { trackId: string }) => void>,
   renderThrows: false,
 }));
 
@@ -25,6 +26,9 @@ vi.mock('./audioEngine', () => ({
     }
     start = h.start;
     dispose = h.dispose;
+    onError(cb: (e: { trackId: string }) => void) {
+      h.errorCbs.push(cb);
+    }
   },
 }));
 // next/dynamic is React.lazy plus Suspense; mirror that so the real loader runs.
@@ -44,7 +48,7 @@ vi.mock('next/dynamic', () => ({
   },
 }));
 const roomModule = () => ({
-  default: function RoomStub(props: { onLeave: () => void; onFail: () => void }) {
+  default: function RoomStub(props: { onLeave: () => void; onFail: () => void; audioFailures?: string[] }) {
     if (h.renderThrows) throw new Error('render failed');
     h.roomProps.push(props);
     return <div data-testid="room-stub" />;
@@ -79,6 +83,7 @@ beforeEach(async () => {
   h.ctor.mockReset();
   h.close.mockClear();
   h.roomProps.length = 0;
+  h.errorCbs.length = 0;
   sessionStorage.clear();
   (window as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext;
 });
@@ -88,6 +93,20 @@ const enter = () => screen.getByRole('button', { name: 'Enter' });
 const skip = () => screen.getByRole('button', { name: 'Skip' });
 
 describe('RoomGate', () => {
+  it('subscribes to audio errors and hands the failed ids to the room', async () => {
+    render(<RoomGate />);
+    fireEvent.click(enter());
+    await screen.findByTestId('room-stub');
+    expect(h.errorCbs.length).toBe(1);
+    expect(h.roomProps.at(-1)?.audioFailures).toEqual([]);
+    act(() => {
+      h.errorCbs[0]({ trackId: 'track-1' });
+      h.errorCbs[0]({ trackId: 'audio-context' });
+      h.errorCbs[0]({ trackId: 'track-1' });
+    });
+    await waitFor(() => expect(h.roomProps.at(-1)?.audioFailures).toEqual(['track-1', 'audio-context']));
+  });
+
   it('offers the room with Enter focused and Skip', () => {
     render(<RoomGate />);
     expect(screen.getByRole('dialog')).toBeTruthy();

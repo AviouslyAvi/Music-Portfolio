@@ -45,6 +45,28 @@ describe('Hud', () => {
     expect(screen.getByText(/WASD/)).toBeTruthy();
   });
 
+  it('shows a quiet audio error line instead of Now playing when audio failed', () => {
+    const onInteract = vi.fn();
+    render(<Hud nearby={null} trackTitle="Placeholder Track One" audioError onInteract={onInteract} onLeave={vi.fn()} />);
+    expect(screen.getByText('Audio unavailable')).toBeTruthy();
+    expect(screen.queryByText(/Now playing/)).toBeNull();
+    expect(screen.queryByText(/Placeholder Track One/)).toBeNull();
+    // The iPod still works: it tries the next track.
+    fireEvent.click(screen.getByRole('button', { name: LABELS[0] }));
+    expect(onInteract).toHaveBeenCalledWith('ipod');
+  });
+
+  it('shows the error line even before any title is known', () => {
+    render(<Hud nearby={null} trackTitle="" audioError onInteract={vi.fn()} onLeave={vi.fn()} />);
+    expect(screen.getByText('Audio unavailable')).toBeTruthy();
+  });
+
+  it('shows Now playing and no error line when audio works', () => {
+    setup(null);
+    expect(screen.getByText(/Now playing/)).toBeTruthy();
+    expect(screen.queryByText('Audio unavailable')).toBeNull();
+  });
+
   it('highlights only the nearby interactable', () => {
     setup('computer');
     expect(screen.getByRole('button', { name: LABELS[1] }).getAttribute('data-nearby')).toBe('true');

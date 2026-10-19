@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { crossfadeGains, TrackPlayer, CROSSFADE_SECONDS } from './audioEngine';
+import { crossfadeGains, TrackPlayer, CROSSFADE_SECONDS, isAudioUnavailable } from './audioEngine';
 import type { Track } from '@/content/tracks';
 
 describe('crossfadeGains', () => {
@@ -419,5 +419,24 @@ describe('TrackPlayer', () => {
     p.dispose();
     await s;
     expect(cb).not.toHaveBeenCalled();
+  });
+});
+
+describe('isAudioUnavailable', () => {
+  const T = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  it('is false with no failures', () => {
+    expect(isAudioUnavailable([], T, 0)).toBe(false);
+  });
+  it('is false when another track failed', () => {
+    expect(isAudioUnavailable(['b'], T, 0)).toBe(false);
+  });
+  it('is true when the current track failed', () => {
+    expect(isAudioUnavailable(['b'], T, 1)).toBe(true);
+  });
+  it('is true when every track failed', () => {
+    expect(isAudioUnavailable(['a', 'b', 'c'], T, 5)).toBe(true);
+  });
+  it('is true when the audio context could not resume', () => {
+    expect(isAudioUnavailable(['audio-context'], T, 0)).toBe(true);
   });
 });

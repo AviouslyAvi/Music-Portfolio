@@ -128,35 +128,41 @@ test.describe('in the room', () => {
     await expect(page.getByText('Placeholder Track Two')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('Use the computer opens the demo; finishing returns to the room', async ({ page }) => {
+  /** The room is gone and the normal home is in front, with focus on #main. */
+  async function expectSiteOpen(page: Page) {
+    await expect(canvas(page)).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.locator('h1')).toBeVisible();
+    await expect(page.locator('#main')).toBeFocused();
+    expect(await page.evaluate(() => sessionStorage.getItem('room:left'))).toBe('1');
+  }
+
+  test('Use the computer opens the demo; Continue to site opens the full site', async ({ page }) => {
     await enterRoom(page);
     await page.getByRole('button', { name: 'Use the computer' }).click();
     const demo = page.getByRole('dialog', DEMO_DIALOG);
     await expect(demo).toBeVisible({ timeout: 5_000 });
     await demo.getByRole('button', { name: 'Rising Pad' }).click({ timeout: 10_000 });
     await demo.getByRole('button', { name: /continue to site/i }).click({ timeout: 15_000 });
-    await expect(demo).toHaveCount(0);
-    await expect(canvas(page)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Use the computer' })).toBeFocused();
-    // Control returns: movement works again near the desk.
-    const z0 = await attr(page, 'data-player-z');
-    await holdKey(page, 's', 400);
-    await expect.poll(() => attr(page, 'data-player-z')).toBeGreaterThan(z0 + 0.1);
+    await expectSiteOpen(page);
   });
 
-  test('Skip in the demo returns to the room, and so does Escape', async ({ page }) => {
+  test('Skip in the demo opens the full site', async ({ page }) => {
     await enterRoom(page);
     const demo = page.getByRole('dialog', DEMO_DIALOG);
     await page.getByRole('button', { name: 'Use the computer' }).click();
     await expect(demo).toBeVisible();
     await demo.getByRole('button', { name: 'Skip' }).click();
-    await expect(demo).toHaveCount(0);
-    await expect(canvas(page)).toBeVisible();
+    await expectSiteOpen(page);
+  });
+
+  test('Escape in the demo skips it and opens the full site', async ({ page }) => {
+    await enterRoom(page);
+    const demo = page.getByRole('dialog', DEMO_DIALOG);
     await page.getByRole('button', { name: 'Use the computer' }).click();
     await expect(demo).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(demo).toHaveCount(0);
-    await expect(canvas(page)).toBeVisible();
+    await expectSiteOpen(page);
   });
 
   test('Leave the room removes the canvas and sets room:left', async ({ page }) => {
@@ -166,6 +172,24 @@ test.describe('in the room', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.locator('h1')).toBeVisible();
     expect(await page.evaluate(() => sessionStorage.getItem('room:left'))).toBe('1');
+  });
+
+  test('when the music cannot load the HUD says so and the room still works', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.route('**/audio/tracks/**', (route) => route.fulfill({ status: 404, body: 'missing' }));
+    await enterRoom(page);
+    await expect(page.getByText('Audio unavailable')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Now playing/)).toHaveCount(0);
+    await page.getByRole('button', { name: 'Play next track (iPod)' }).click();
+    await expect(page.getByText('Audio unavailable')).toBeVisible();
+    const z0 = await attr(page, 'data-player-z');
+    await holdKey(page, 'w', 400);
+    await expect.poll(() => attr(page, 'data-player-z')).toBeLessThan(z0 - 0.1);
+    await page.getByRole('button', { name: 'Leave the room' }).click();
+    await expect(canvas(page)).toHaveCount(0);
+    await expect(page.locator('h1')).toBeVisible();
+    expect(errors).toEqual([]);
   });
 
   test('a refused pointer lock still allows arrow keys and the HUD', async ({ page }) => {

@@ -155,6 +155,7 @@ export const ROOM = {
   canvasLabel: 'AVIOUS studio room. Use the buttons below or the keyboard to move and interact.',
   hint: 'WASD or arrow keys to move. Mouse to look (click to capture the mouse). E to use what is nearby. Esc releases the mouse.',
   nowPlaying: 'Now playing',
+  audioUnavailable: 'Audio unavailable',
   nearbyIpod: 'Near the iPod. Press E to play the next track.',
   nearbyComputer: 'Near the computer. Press E to use it.',
   ipodButton: 'Play next track (iPod)',

@@ -13,7 +13,8 @@ import { stepPlayer, normalizeYaw, type PlayerState } from './movement';
 import {
   SOLIDS, ROOM_BOUNDS, START, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable,
 } from './layout';
-import type { TrackPlayer } from './audioEngine';
+import { isAudioUnavailable, type TrackPlayer } from './audioEngine';
+import { TRACKS } from '@/content/tracks';
 import { Hud, type Interactable } from './Hud';
 import styles from './room.module.css';
 
@@ -69,6 +70,8 @@ function inClickRange(p: PlayerState['pos'], t: Interactable): boolean {
   return Math.hypot(p.x - target.x, p.z - target.z) <= CLICK_RANGE;
 }
 
+const NO_FAILURES: string[] = [];
+
 const smoothstep = (t: number) => t * t * (3 - 2 * t);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -76,10 +79,13 @@ export default function RoomExperience({
   onLeave,
   onFail,
   audio = null,
+  audioFailures = NO_FAILURES,
 }: {
   onLeave: () => void;
   onFail: () => void;
   audio?: RoomAudio | null;
+  /** Track ids (or 'audio-context') the player reported through onError. */
+  audioFailures?: string[];
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -92,6 +98,7 @@ export default function RoomExperience({
 
   const [nearby, setNearby] = useState<Interactable | null>(null);
   const [title, setTitle] = useState('');
+  const [trackIndex, setTrackIndex] = useState(0);
   const [demoOpen, setDemoOpen] = useState(false);
   const wasOpen = useRef(false);
 
@@ -294,54 +301,61 @@ export default function RoomExperience({
       let last = 0;
       const frame = (now: number) => {
         raf = requestAnimationFrame(frame);
-        const dt = last ? (now - last) / 1000 : 0;
-        last = now;
-        if (mode === 'walk') {
-          const has = (s: Set<string>) => [...s].some((k) => keys.has(k));
-          const input = {
-            forward: (has(FORWARD) ? 1 : 0) - (has(BACK) ? 1 : 0),
-            strafe: (has(RIGHT) ? 1 : 0) - (has(LEFT) ? 1 : 0),
-            turn: (has(TURN_LEFT) ? 1 : 0) - (has(TURN_RIGHT) ? 1 : 0),
-          };
-          if (input.forward || input.strafe || input.turn) player = stepPlayer(player, input, dt, SOLIDS, ROOM_BOUNDS);
-        } else if (mode === 'easing' && ease) {
-          if (ease.start < 0) ease.start = now;
-          const t = reduced ? 1 : Math.min(1, (now - ease.start) / EASE_MS);
-          const k = smoothstep(t);
-          const dYaw = normalizeYaw(DESK_POSE.yaw - ease.from.yaw);
-          player = {
-            pos: { x: lerp(ease.from.pos.x, DESK_POSE.x, k), z: lerp(ease.from.pos.z, DESK_POSE.z, k) },
-            yaw: normalizeYaw(ease.from.yaw + dYaw * k),
-          };
-          pitch = lerp(ease.fromPitch, DESK_POSE.pitch, k);
-          if (t >= 1) openDemo();
-        }
+        try {
+          const dt = last ? (now - last) / 1000 : 0;
+          last = now;
+          if (mode === 'walk') {
+            const has = (s: Set<string>) => [...s].some((k) => keys.has(k));
+            const input = {
+              forward: (has(FORWARD) ? 1 : 0) - (has(BACK) ? 1 : 0),
+              strafe: (has(RIGHT) ? 1 : 0) - (has(LEFT) ? 1 : 0),
+              turn: (has(TURN_LEFT) ? 1 : 0) - (has(TURN_RIGHT) ? 1 : 0),
+            };
+            if (input.forward || input.strafe || input.turn) player = stepPlayer(player, input, dt, SOLIDS, ROOM_BOUNDS);
+          } else if (mode === 'easing' && ease) {
+            if (ease.start < 0) ease.start = now;
+            const t = reduced ? 1 : Math.min(1, (now - ease.start) / EASE_MS);
+            const k = smoothstep(t);
+            const dYaw = normalizeYaw(DESK_POSE.yaw - ease.from.yaw);
+            player = {
+              pos: { x: lerp(ease.from.pos.x, DESK_POSE.x, k), z: lerp(ease.from.pos.z, DESK_POSE.z, k) },
+              yaw: normalizeYaw(ease.from.yaw + dYaw * k),
+            };
+            pitch = lerp(ease.fromPitch, DESK_POSE.pitch, k);
+            if (t >= 1) openDemo();
+          }
 
-        camera.position.set(player.pos.x, EYE_HEIGHT, player.pos.z);
-        camera.rotation.set(pitch, player.yaw, 0);
-        r.render(scene, camera);
+          camera.position.set(player.pos.x, EYE_HEIGHT, player.pos.z);
+          camera.rotation.set(pitch, player.yaw, 0);
+          r.render(scene, camera);
 
-        const near = mode === 'walk' ? nearestInteractable(player.pos) : lastNearby;
-        if (near !== lastNearby) {
-          lastNearby = near;
-          setNearby(near);
-        }
-        const a = audioRef.current;
-        const tt = a ? a.player.title : '';
-        if (tt !== lastTitle) {
-          lastTitle = tt;
-          setTitle(tt);
-        }
-        const x = player.pos.x.toFixed(3);
-        const z = player.pos.z.toFixed(3);
-        const y = player.yaw.toFixed(3);
-        const attrs = `${x}|${z}|${y}`;
-        if (attrs !== lastAttrs) {
-          lastAttrs = attrs;
-          wrap.dataset.playerX = x;
-          wrap.dataset.playerZ = z;
-          wrap.dataset.playerYaw = y;
-          a?.player.setListenerPose(player.pos.x, player.pos.z, player.yaw);
+          const near = mode === 'walk' ? nearestInteractable(player.pos) : lastNearby;
+          if (near !== lastNearby) {
+            lastNearby = near;
+            setNearby(near);
+          }
+          const a = audioRef.current;
+          const tt = a ? a.player.title : '';
+          if (tt !== lastTitle) {
+            lastTitle = tt;
+            setTitle(tt);
+            setTrackIndex(a ? a.player.index : 0);
+          }
+          const x = player.pos.x.toFixed(3);
+          const z = player.pos.z.toFixed(3);
+          const y = player.yaw.toFixed(3);
+          const attrs = `${x}|${z}|${y}`;
+          if (attrs !== lastAttrs) {
+            lastAttrs = attrs;
+            wrap.dataset.playerX = x;
+            wrap.dataset.playerZ = z;
+            wrap.dataset.playerYaw = y;
+            a?.player.setListenerPose(player.pos.x, player.pos.z, player.yaw);
+          }
+        } catch {
+          // A broken frame hands back to the normal site once.
+          stopLoop();
+          fail();
         }
       };
 
@@ -416,13 +430,23 @@ export default function RoomExperience({
   }, [demoOpen]);
 
   const onInteract = useCallback((t: Interactable) => apiRef.current?.interact(t), []);
-  const onFinish = useCallback(() => apiRef.current?.closeDemo(), []);
+  // After the demo, finished or skipped, the full site opens: the same path as
+  // "Leave the room" (room:left is set and the room unmounts).
+  const leaveRef = useRef(onLeave);
+  leaveRef.current = onLeave;
+  const onFinish = useCallback(() => leaveRef.current(), []);
 
   return (
     <div ref={rootRef} className={styles.room} role="dialog" aria-modal="true" aria-label="AVIOUS studio room" tabIndex={-1}>
       <div inert={demoOpen}>
         <div ref={wrapRef} className={styles.canvasWrap} data-testid="room-canvas" role="img" aria-label={ROOM.canvasLabel} />
-        <Hud nearby={nearby} trackTitle={title} onInteract={onInteract} onLeave={onLeave} />
+        <Hud
+          nearby={nearby}
+          trackTitle={title}
+          audioError={isAudioUnavailable(audioFailures, TRACKS, trackIndex)}
+          onInteract={onInteract}
+          onLeave={onLeave}
+        />
       </div>
       {demoOpen && (
         <div ref={overlayRef} className={styles.demoOverlay} role="dialog" aria-modal="true" aria-label={ROOM.demoLabel} tabIndex={-1}>
