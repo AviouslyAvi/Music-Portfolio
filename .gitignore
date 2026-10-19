@@ -26,3 +26,6 @@ next-env.d.ts
 test-results/
 playwright-report/
 tsconfig.tsbuildinfo
+
+# Vitest cache
+.vitest/

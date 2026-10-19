@@ -48,3 +48,26 @@ test('inline field errors block submit; button disabled while pending', async ({
   await expect(page.getByRole('status')).toBeVisible();
   expect(calls).toBe(1);
 });
+
+for (const email of ['a@b.co,', '<a@b.co>']) {
+  test(`email ${email} shows the field error and is never sent`, async ({ page }) => {
+    let calls = 0;
+    await page.route('**/api/contact', (r) => {
+      calls++;
+      return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+    });
+    await fill(page);
+    await page.getByLabel('Your email').fill(email);
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByText('Please enter a valid email address.')).toBeVisible();
+    expect(calls).toBe(0);
+  });
+
+  test(`the API rejects email ${email} as invalid`, async ({ request }) => {
+    const res = await request.post('/api/contact', {
+      data: { name: 'Ada', email, message: 'A slow warm idea' },
+    });
+    expect(res.status()).toBe(400);
+    expect(await res.json()).toEqual({ ok: false, error: 'invalid' });
+  });
+}

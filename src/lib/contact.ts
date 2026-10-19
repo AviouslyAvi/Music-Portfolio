@@ -13,18 +13,27 @@ export type ContactSender = (m: ContactMessage) => Promise<void>;
 
 export const LIMITS = { name: 100, message: 5000, link: 500, email: 254 } as const;
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// local@domain.tld, where no part may contain whitespace, control characters,
+// another @, or the list and display-name characters <>,;"()[] and backslash,
+// so "a@b.co," or "<a@b.co>" cannot reach the reply-to header.
+const EMAIL_CHAR = '[^\\s\\u0000-\\u001f\\u007f@<>,;"()\\[\\]\\\\]';
+const EMAIL = new RegExp(`^${EMAIL_CHAR}+@${EMAIL_CHAR}+\\.${EMAIL_CHAR}+$`);
+// Whitespace or control characters anywhere in a link: rejected before parsing,
+// because URL parsing would silently strip tabs and newlines.
+const LINK_BAD = /[\s\u0000-\u001f\u007f]/;
 
 function str(v: unknown): string | null {
   return typeof v === 'string' ? v.trim() : null;
 }
 
-function isHttpUrl(v: string): boolean {
+/** The normalized href of an http(s) link, or null when it is not one. */
+function httpHref(v: string): string | null {
+  if (LINK_BAD.test(v)) return null;
   try {
     const u = new URL(v);
-    return u.protocol === 'http:' || u.protocol === 'https:';
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -49,8 +58,10 @@ export function validateContact(
     const link = str(o.link);
     if (link === null) return bad;
     if (link.length > 0) {
-      if (link.length > LIMITS.link || !isHttpUrl(link)) return bad;
-      value.link = link;
+      if (link.length > LIMITS.link) return bad;
+      const href = httpHref(link);
+      if (href === null || href.length > LIMITS.link) return bad;
+      value.link = href;
     }
   }
   if (o.website !== undefined && o.website !== null) {
