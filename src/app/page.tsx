@@ -6,7 +6,7 @@ import { HERO, PHILOSOPHY, EMOTIONAL_PALETTE, SERVICES, COLLAB } from '@/content
 export default function HomePage() {
   return (
     <>
-      <main id="main">
+      <main id="main" tabIndex={-1}>
         <header className="hero">
           <div className="container hero-inner">
             <p className="eyebrow">{HERO.eyebrow}</p>

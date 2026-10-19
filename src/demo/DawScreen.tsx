@@ -38,7 +38,7 @@ export function DawScreen({
         <span className={styles.transportLabel}>Session</span>
         <span className={styles.led} data-on={playing} aria-hidden="true" />
         <span className={styles.readout}>{playing ? 'Rendering' : done ? 'Rendered' : 'Stopped'}</span>
-        <button type="button" className={styles.btn} onClick={onSkip}>
+        <button type="button" className={styles.btn} data-demo-skip="" onClick={onSkip}>
           Skip
         </button>
       </div>

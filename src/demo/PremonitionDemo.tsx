@@ -73,7 +73,7 @@ export function PremonitionDemo({
       {state.phase === 'booting' || state.phase === 'idle' ? (
         <>
           <BootSequence onDone={onBootDone} />
-          <button type="button" className={`${styles.btn} ${styles.floatSkip}`} onClick={onSkip}>
+          <button type="button" className={`${styles.btn} ${styles.floatSkip}`} data-demo-skip="" onClick={onSkip}>
             Skip
           </button>
         </>

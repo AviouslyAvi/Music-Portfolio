@@ -259,7 +259,11 @@ export default function RoomExperience({
       });
       listen(window, 'mousemove', (e: MouseEvent) => {
         if (locked) {
-          look(e.movementX || 0, e.movementY || 0);
+          const mx = e.movementX || 0;
+          const my = e.movementY || 0;
+          // Looking around between press and release is not a click.
+          if (drag && (mx || my)) drag.moved = true;
+          look(mx, my);
           return;
         }
         if (!drag) return;
@@ -397,7 +401,8 @@ export default function RoomExperience({
       overlayRef.current?.focus();
       const onKey = (e: KeyboardEvent) => {
         if (e.key !== 'Escape') return;
-        const skip = [...(overlayRef.current?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.trim() === 'Skip');
+        // The demo's own Skip, so demo_skipped is tracked and its audio stops.
+        const skip = overlayRef.current?.querySelector<HTMLButtonElement>('[data-demo-skip]');
         if (skip) skip.click();
         else apiRef.current?.closeDemo();
       };

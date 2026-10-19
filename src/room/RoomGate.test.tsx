@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
+import { lazy, Suspense, type ComponentType } from 'react';
 
 const h = vi.hoisted(() => ({
   offer: true,
@@ -9,6 +10,7 @@ const h = vi.hoisted(() => ({
   ctor: vi.fn(),
   close: vi.fn(() => Promise.resolve()),
   roomProps: [] as Array<{ onLeave: () => void; onFail: () => void }>,
+  renderThrows: false,
 }));
 
 vi.mock('@/lib/capability', () => ({
@@ -25,15 +27,32 @@ vi.mock('./audioEngine', () => ({
     dispose = h.dispose;
   },
 }));
+// next/dynamic is React.lazy plus Suspense; mirror that so the real loader runs.
 vi.mock('next/dynamic', () => ({
-  default: () =>
-    function RoomStub(props: { onLeave: () => void; onFail: () => void }) {
-      h.roomProps.push(props);
-      return <div data-testid="room-stub" />;
-    },
+  default: (loader: () => Promise<ComponentType<Record<string, unknown>> | { default: ComponentType<Record<string, unknown>> }>) => {
+    const L = lazy(async () => {
+      const m = await loader();
+      return { default: 'default' in m ? m.default : m };
+    });
+    return function Dynamic(props: Record<string, unknown>) {
+      return (
+        <Suspense fallback={null}>
+          <L {...props} />
+        </Suspense>
+      );
+    };
+  },
 }));
+const roomModule = () => ({
+  default: function RoomStub(props: { onLeave: () => void; onFail: () => void }) {
+    if (h.renderThrows) throw new Error('render failed');
+    h.roomProps.push(props);
+    return <div data-testid="room-stub" />;
+  },
+});
 
-import { RoomGate } from './RoomGate';
+let RoomGate: typeof import('./RoomGate').RoomGate;
+
 
 class FakeAudioContext {
   destination = {};
@@ -42,8 +61,17 @@ class FakeAudioContext {
   resume = () => Promise.resolve();
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   cleanup();
+  // Fresh modules per test: no failure flag or lazy cache leaks between tests.
+  vi.resetModules();
+  h.renderThrows = false;
+  vi.doMock('./RoomExperience', roomModule);
+  RoomGate = (await import('./RoomGate')).RoomGate;
+  document.body.querySelectorAll('[data-chrome]').forEach((e) => e.remove());
+  for (const html of ['<nav data-chrome><a href="/work">Work</a></nav>', '<main id="main" tabindex="-1" data-chrome><h1>Home</h1></main>']) {
+    document.body.insertAdjacentHTML('afterbegin', html);
+  }
   h.offer = true;
   h.track.mockReset();
   h.start.mockClear();
@@ -96,44 +124,109 @@ describe('RoomGate', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('Enter tracks, starts audio and mounts the room once, even on double click', () => {
+  it('makes the site behind the overlay inert, and restores it with focus on main after Skip', () => {
+    render(<RoomGate />);
+    const nav = document.querySelector('nav')!;
+    const main = document.getElementById('main')!;
+    expect(nav.hasAttribute('inert')).toBe(true);
+    expect(main.hasAttribute('inert')).toBe(true);
+    expect(screen.getByRole('dialog').closest('[inert]')).toBeNull();
+    fireEvent.click(skip());
+    expect(nav.hasAttribute('inert')).toBe(false);
+    expect(main.hasAttribute('inert')).toBe(false);
+    expect(document.activeElement).toBe(main);
+  });
+
+  it('Enter tracks, starts audio and mounts the room once, even on double click', async () => {
     render(<RoomGate />);
     const b = enter();
     fireEvent.click(b);
     fireEvent.click(b);
+    expect(await screen.findAllByTestId('room-stub')).toHaveLength(1);
     expect(h.track).toHaveBeenCalledTimes(1);
     expect(h.track).toHaveBeenCalledWith('room_entered');
     expect(h.ctor).toHaveBeenCalledTimes(1);
     expect(h.start).toHaveBeenCalledTimes(1);
-    expect(screen.getAllByTestId('room-stub')).toHaveLength(1);
+    expect(document.querySelector('nav')!.hasAttribute('inert')).toBe(true);
   });
 
-  it('Leave sets the flag, unmounts the room and closes audio', () => {
+  it('Leave sets the flag, unmounts the room, closes audio and restores the page', async () => {
     render(<RoomGate />);
     fireEvent.click(enter());
+    await screen.findByTestId('room-stub');
     act(() => h.roomProps[0].onLeave());
     expect(screen.queryByTestId('room-stub')).toBeNull();
     expect(sessionStorage.getItem('room:left')).toBe('1');
     expect(h.dispose).toHaveBeenCalled();
     expect(h.close).toHaveBeenCalled();
     expect(document.body.style.overflow).toBe('');
+    expect(document.querySelector('nav')!.hasAttribute('inert')).toBe(false);
+    expect(document.activeElement).toBe(document.getElementById('main'));
   });
 
-  it('still enters when audio cannot start', () => {
+  it('still enters when audio cannot start', async () => {
     delete (window as unknown as { AudioContext?: unknown }).AudioContext;
     render(<RoomGate />);
     fireEvent.click(enter());
-    expect(screen.getByTestId('room-stub')).toBeTruthy();
+    expect(await screen.findByTestId('room-stub')).toBeTruthy();
     expect(h.track).toHaveBeenCalledWith('room_entered');
   });
-  // Last: a failure blocks the room for the rest of this page view.
-  it('a failure unmounts the room and closes audio without persisting the flag', () => {
-    render(<RoomGate />);
-    fireEvent.click(enter());
-    act(() => h.roomProps[0].onFail());
+
+  const renderPage = () =>
+    render(
+      <>
+        <h2>Site content</h2>
+        <RoomGate />
+      </>,
+    );
+
+  function expectNormalHome() {
     expect(screen.queryByTestId('room-stub')).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
+    // Rendered in the same React tree as the gate, so an uncaught error would remove it.
+    expect(screen.getByRole('heading', { name: 'Site content' })).toBeTruthy();
+    expect(document.querySelector('nav')!.hasAttribute('inert')).toBe(false);
+    expect(document.body.style.overflow).toBe('');
     expect(sessionStorage.getItem('room:left')).toBeNull();
+    expect(h.dispose).toHaveBeenCalled();
     expect(h.close).toHaveBeenCalled();
+  }
+
+  it('onFail unmounts the room and stops audio without persisting the flag', async () => {
+    renderPage();
+    fireEvent.click(enter());
+    await screen.findByTestId('room-stub');
+    act(() => h.roomProps[0].onFail());
+    expectNormalHome();
+  });
+
+  it('a render error in the room falls back to the normal home', async () => {
+    h.renderThrows = true;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderPage();
+    fireEvent.click(enter());
+    await waitFor(() => expect(h.close).toHaveBeenCalled());
+    expectNormalHome();
+    err.mockRestore();
+  });
+
+  it('a room chunk that fails to load falls back to the normal home', async () => {
+    vi.doMock('./RoomExperience', () => {
+      throw new Error('chunk failed to load');
+    });
+    renderPage();
+    fireEvent.click(enter());
+    await waitFor(() => expect(h.close).toHaveBeenCalled());
+    expectNormalHome();
+  });
+
+  it('does not offer the room again in this page view after a failure', async () => {
+    const { unmount } = render(<RoomGate />);
+    fireEvent.click(enter());
+    await screen.findByTestId('room-stub');
+    act(() => h.roomProps[0].onFail());
+    unmount();
+    render(<RoomGate />);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
