@@ -3,14 +3,22 @@ import { Fraunces, Inter } from 'next/font/google';
 import './globals.css';
 import { Nav } from '@/components/Nav';
 import { Footer } from '@/components/Footer';
-import { LINKS } from '@/content/site';
+import { LINKS, SITE_URL } from '@/content/site';
 
 const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-fraunces', display: 'swap' });
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: 'AVIOUS',
   description: 'Music production, mixing and plugins by AVIOUS.',
+  openGraph: {
+    title: 'AVIOUS',
+    description: 'Music production, mixing and plugins by AVIOUS.',
+    url: '/',
+    siteName: 'AVIOUS',
+    type: 'website',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

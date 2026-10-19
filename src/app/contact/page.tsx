@@ -6,6 +6,7 @@ import { ContactForm } from './ContactForm';
 export const metadata: Metadata = {
   title: 'Contact | AVIOUS',
   description: 'Send a link to a voice note, a rough idea, or a mood.',
+  openGraph: { title: 'Contact | AVIOUS', description: 'Send a link to a voice note, a rough idea, or a mood.', url: '/contact' },
 };
 
 export default function ContactPage() {

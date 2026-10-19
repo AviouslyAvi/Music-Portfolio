@@ -6,6 +6,7 @@ import { ABOUT, DAWS } from '@/content/copy';
 export const metadata: Metadata = {
   title: 'About | AVIOUS',
   description: 'The Alchemist: worlds built from texture, with a human fingerprint.',
+  openGraph: { title: 'About | AVIOUS', description: 'The Alchemist: worlds built from texture, with a human fingerprint.', url: '/about' },
 };
 
 export default function AboutPage() {

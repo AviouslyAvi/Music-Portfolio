@@ -6,6 +6,7 @@ import { SERVICES, COLLAB } from '@/content/copy';
 export const metadata: Metadata = {
   title: 'Services | AVIOUS',
   description: 'Production and arrangement, sound design, finishing and finalization, teaching and mentorship.',
+  openGraph: { title: 'Services | AVIOUS', description: 'Production and arrangement, sound design, finishing and finalization, teaching and mentorship.', url: '/services' },
 };
 
 export default function ServicesPage() {

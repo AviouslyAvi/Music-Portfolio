@@ -116,3 +116,29 @@ export const CONTACT = {
   },
   success: 'Thank you. Your message is in, and I will reply by email.',
 };
+
+export const WORK = {
+  title: 'Finished work, ready to play',
+  lede: 'A few finished tracks. Press play on any of them; only one plays at a time.',
+};
+
+export const PREMONITION = {
+  wordmark: 'PREMONITION',
+  tagline: 'Echoes of the future.',
+  lede: 'A plugin for building risers. It is an offline renderer, not a live insert effect: you hand it a sound, it renders the swell, and you take the result back to your session.',
+  formatsLabel: 'Formats',
+  formats: 'VST3, AU, CLAP',
+  stepsTitle: 'Drop, render, drag',
+  steps: [
+    { title: 'Drop', body: 'Drop a sound onto the plugin.' },
+    { title: 'Render', body: 'It renders the riser offline, ending on the downbeat.' },
+    { title: 'Drag', body: 'Drag the finished audio back into your session.' },
+  ],
+  demoTitle: 'Hear it before you read about it',
+  demoLede: 'Choose a sound. It runs through the plugin as a short rendered riser that lands on the downbeat.',
+  priceTitle: 'Price',
+  price: 'Launch price $19.99, then $24.99.',
+  priceNote: 'A free demo is available if you want to try it in your own session first.',
+  buy: 'Buy Premonition',
+  demo: 'Download the free demo',
+};
