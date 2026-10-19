@@ -2,11 +2,22 @@
 
 Date: 2026-10-18. Repo: `/Users/aviouslyavi/Claude/Projects/Music-Portfolio` (GitHub: AviouslyAvi/Music-Portfolio). Branch: `experiment/new-architecture` (off `main`; `main` still serves the old static site on GitHub Pages at imavious.org via `CNAME`).
 
-## State
+## State (updated after Task 11)
 
-Brainstorming is finished and the design is **approved by the owner**. **Nothing is built.** No Next.js project, no three.js, no dependencies installed. The owner said explicitly: do not build yet.
+Tasks 1-11 are done on `experiment/new-architecture`: the full Next.js app (all routes, contact, Premonition demo, walk-in room, HUD, gate, audio engine), unit and e2e tests, and the budget check. Task 11 added `scripts/check-budget.mjs` (`npm run budget`: room chunk plus audio under 2 MB gzipped, and no room chunk on any route including `/`; helpers tested in `scripts/check-budget.test.ts`), a full `README.md` rewrite (old static-site notes kept under "Legacy static site"), `tests/e2e/room-timing.spec.ts` (room readiness under 4x CPU throttling, soft limit 15 s), and this update. Current numbers: room chunk about 136 KB gzipped, audio about 511 KB gzipped, total about 648 KB of 2048 KB; measured room readiness under 4x CPU throttling about 1 s on localhost with software GL.
 
-Approved design: `docs/superpowers/specs/2026-10-18-avious-site-design.md` (committed on the branch). Read it first; it holds intent, goals, non-goals, anti-goals, the owner's decisions, my calls, what is left to the builder, and open items.
+- Preview URL: not deployed.
+
+Not done:
+- Vercel preview deploy (deliberately skipped; no deploy, DNS, domain or git remote changes were made).
+- Domain switch from GitHub Pages to Vercel (steps in README).
+- Real audio swap: tracks and the three rendered Premonition sounds are placeholders (`placeholder: true`).
+- Free demo zip at `public/downloads/premonition-demo.zip` (absent, link 404s until supplied).
+- Analytics provider choice and script tag (README, Analytics).
+- Resend credentials (`RESEND_API_KEY`, `CONTACT_TO`, `CONTACT_FROM`).
+- Owner inputs still open: what avious.co holds, which tracks go on the iPod, which sounds get rendered.
+
+Original pre-build status (kept for the record): brainstorming finished and the design approved by the owner; nothing was built at that point. Approved design: `docs/superpowers/specs/2026-10-18-avious-site-design.md` (committed on the branch). It holds intent, goals, non-goals, anti-goals, the owner's decisions, my calls, what is left to the builder, and open items.
 
 ## One-paragraph summary
 
@@ -14,7 +25,7 @@ imavious.org becomes a portfolio built in Next.js with a three.js walk-in room. 
 
 ## Next step
 
-Invoke `superpowers:writing-plans` and write the implementation plan from the approved design doc. Do not scaffold, install, or write product code until the plan exists and the owner OKs building. The room is built from code with simple shapes (no imported 3D models).
+Owner review of the build, then (with owner approval) a Vercel preview deploy, supplying real audio and the demo zip, choosing an analytics provider, and the domain switch. Original pre-build instruction, now superseded: invoke `superpowers:writing-plans` and write the implementation plan from the approved design doc; do not scaffold until the plan exists. The room is built from code with simple shapes (no imported 3D models).
 
 ## Open items (from the design doc)
 

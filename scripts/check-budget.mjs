@@ -1,0 +1,115 @@
+// Budget check, run after `npm run build`.
+//  (a) gzip total of the room chunk(s) plus public/audio/tracks and public/audio/demo must be <= 2 MB.
+//  (b) no route other than `/` may reference a chunk containing three.js (WebGLRenderer).
+//  (c) `/` must not reference it either: the room chunk is dynamic-only (loaded after Enter).
+// Routes are read from the prerendered HTML in .next/server/app, using every
+// /_next/static/chunks/*.js URL it mentions (script tags, preloads, inline payload).
+import { gzipSync } from 'node:zlib';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { join, basename, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export const BUDGET_BYTES = 2 * 1024 * 1024;
+export const ROOM_MARKER = 'WebGLRenderer';
+
+export function gzipSize(buf) {
+  return gzipSync(buf).length;
+}
+
+/** chunkMap: { fileName: contents(string|Buffer) } -> names of chunks that contain three.js. */
+export function findRoomChunks(chunkMap) {
+  return Object.keys(chunkMap).filter((name) => String(chunkMap[name]).includes(ROOM_MARKER));
+}
+
+/** routeToChunks: { route: [chunkName] } -> list of { route, chunk, message }. */
+export function checkRoutes(routeToChunks, roomChunks) {
+  const room = new Set(roomChunks);
+  const violations = [];
+  for (const [route, chunks] of Object.entries(routeToChunks)) {
+    for (const chunk of chunks) {
+      if (!room.has(chunk)) continue;
+      const message =
+        route === '/'
+          ? `Route / statically includes room chunk ${chunk}; the room chunk must be dynamic-only`
+          : `Route ${route} includes room chunk ${chunk} (three.js must only load on /)`;
+      violations.push({ route, chunk, message });
+    }
+  }
+  return violations;
+}
+
+/** Unique chunk file names for every /_next/static/chunks/*.js (or static/chunks/*.js) mention. */
+export function extractChunkUrls(html) {
+  const found = new Set();
+  for (const m of html.matchAll(/static\/chunks\/([^"'\\\s?>]+\.js)/g)) found.add(m[1]);
+  return [...found];
+}
+
+export function routeFromHtmlPath(file) {
+  const name = basename(file).replace(/\.html$/, '');
+  return name === 'index' ? '/' : `/${name}`;
+}
+
+export function checkTotal(totalBytes) {
+  return { ok: totalBytes <= BUDGET_BYTES, total: totalBytes, limit: BUDGET_BYTES };
+}
+
+const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
+
+function gzipDir(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => statSync(join(dir, f)).isFile())
+    .map((f) => ({ name: `${basename(dir)}/${f}`, bytes: gzipSize(readFileSync(join(dir, f))) }));
+}
+
+export function run(root = process.cwd()) {
+  const chunkDir = join(root, '.next/static/chunks');
+  const appDir = join(root, '.next/server/app');
+  if (!existsSync(chunkDir) || !existsSync(appDir)) {
+    console.error('No build output found. Run `npm run build` first.');
+    return 1;
+  }
+  const chunkMap = {};
+  for (const f of readdirSync(chunkDir)) {
+    if (f.endsWith('.js')) chunkMap[f] = readFileSync(join(chunkDir, f), 'utf8');
+  }
+  const roomChunks = findRoomChunks(chunkMap);
+  if (roomChunks.length === 0) {
+    console.error('FAIL: no room chunk (WebGLRenderer) found under .next/static/chunks; is three.js bundled?');
+    return 1;
+  }
+
+  const parts = [
+    ...roomChunks.map((c) => ({ name: `room chunk ${c}`, bytes: gzipSize(Buffer.from(chunkMap[c])) })),
+    ...gzipDir(join(root, 'public/audio/tracks')).map((p) => ({ ...p, name: `audio ${p.name}` })),
+    ...gzipDir(join(root, 'public/audio/demo')).map((p) => ({ ...p, name: `audio ${p.name}` })),
+  ];
+  console.log('Gzipped budget parts:');
+  for (const p of parts) console.log(`  ${p.name.padEnd(48)} ${kb(p.bytes).padStart(10)}`);
+  const total = parts.reduce((s, p) => s + p.bytes, 0);
+  const t = checkTotal(total);
+  console.log(`Total: ${kb(total)} of ${kb(t.limit)} (${((total / t.limit) * 100).toFixed(1)}%)`);
+
+  let failed = false;
+  if (!t.ok) {
+    console.error(`FAIL: gzipped total ${kb(total)} exceeds the 2 MB budget`);
+    failed = true;
+  }
+
+  const routeToChunks = {};
+  for (const f of readdirSync(appDir)) {
+    if (f.endsWith('.html')) routeToChunks[routeFromHtmlPath(f)] = extractChunkUrls(readFileSync(join(appDir, f), 'utf8'));
+  }
+  console.log('Routes checked: ' + Object.keys(routeToChunks).sort().join(', '));
+  const violations = checkRoutes(routeToChunks, roomChunks);
+  for (const v of violations) console.error(`FAIL: ${v.message}`);
+  if (violations.length) failed = true;
+
+  if (!failed) console.log('Budget OK');
+  return failed ? 1 : 0;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exit(run());
+}
