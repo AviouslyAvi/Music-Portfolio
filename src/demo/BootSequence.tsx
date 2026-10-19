@@ -33,7 +33,11 @@ export function BootSequence({ onDone }: { onDone: () => void }) {
       LINES.forEach((_, i) => timers.push(setTimeout(() => setShown(i + 1), step * (i + 1))));
     }
     timers.push(setTimeout(() => done.current(), reduced ? REDUCED_MS : TOTAL_MS));
-    const onKey = () => done.current();
+    const onKey = (e: KeyboardEvent) => {
+      if (['Tab', 'Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+      if (e.target instanceof Element && e.target.closest('button')) return;
+      done.current();
+    };
     window.addEventListener('keydown', onKey);
     return () => {
       timers.forEach(clearTimeout);

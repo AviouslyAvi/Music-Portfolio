@@ -29,8 +29,8 @@ describe('PremonitionDemo', () => {
     play.mockRejectedValue(new Error('blocked'));
     render(<PremonitionDemo bootSequence={false} />);
     fireEvent.click(screen.getByRole('button', { name: SOUNDS[0].label }));
-    await waitFor(() => expect(screen.getByText(/Audio unavailable/)).toBeTruthy());
-    expect(screen.getByRole('status').textContent).toMatch(/done|finished/i);
+    await waitFor(() => expect(screen.getAllByText(/Audio unavailable/).length).toBeGreaterThan(0));
+    expect(screen.getByRole('status').textContent).toMatch(/audio unavailable/i);
     expect((screen.getByRole('button', { name: /skip/i }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByRole('button', { name: /continue to site/i })).toBeTruthy();
   });
@@ -73,5 +73,41 @@ describe('PremonitionDemo', () => {
       fireEvent.keyDown(window, { key: 'a' });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: SOUNDS[0].label })).toBeTruthy());
+  });
+
+  it('Tab, modifier keys and keys on the Skip button do not end boot', () => {
+    render(<PremonitionDemo bootSequence={true} />);
+    for (const key of ['Tab', 'Shift', 'Control', 'Alt', 'Meta']) fireEvent.keyDown(window, { key });
+    fireEvent.keyDown(screen.getByRole('button', { name: /skip/i }), { key: 'Enter' });
+    expect(screen.queryByRole('button', { name: SOUNDS[0].label })).toBeNull();
+  });
+
+  describe('stale play promise after Skip', () => {
+    function setup() {
+      let resolve!: () => void;
+      let reject!: (e: Error) => void;
+      play.mockReturnValue(new Promise<void>((res, rej) => { resolve = res; reject = rej; }));
+      const onFinish = vi.fn();
+      render(<PremonitionDemo bootSequence={false} onFinish={onFinish} />);
+      fireEvent.click(screen.getByRole('button', { name: SOUNDS[0].label }));
+      fireEvent.click(screen.getByRole('button', { name: /skip/i }));
+      return { onFinish, resolve, reject };
+    }
+    it('late resolve is ignored', async () => {
+      const { onFinish, resolve } = setup();
+      await act(async () => { resolve(); });
+      expect(onFinish).toHaveBeenCalledTimes(1);
+      expect(onFinish).toHaveBeenCalledWith('skipped');
+      expect(screen.getByRole('status').textContent).toMatch(/skipped/i);
+      expect(screen.queryByRole('button', { name: /continue to site/i })).toBeNull();
+    });
+    it('late reject is ignored', async () => {
+      const { onFinish, reject } = setup();
+      await act(async () => { reject(new Error('aborted')); });
+      expect(onFinish).toHaveBeenCalledTimes(1);
+      expect(onFinish).toHaveBeenCalledWith('skipped');
+      expect(screen.getByRole('status').textContent).toMatch(/skipped/i);
+      expect(screen.queryByText(/Audio unavailable/)).toBeNull();
+    });
   });
 });

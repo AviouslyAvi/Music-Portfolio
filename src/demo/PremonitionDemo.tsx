@@ -66,7 +66,9 @@ export function PremonitionDemo({
   return (
     <div className={styles.root}>
       <p role="status" className={styles.srOnly}>
-        {PHASE_TEXT[state.phase]}
+        {state.phase === 'done' && state.audioError
+          ? 'Audio unavailable. Choose another sound or continue.'
+          : PHASE_TEXT[state.phase]}
       </p>
       {state.phase === 'booting' || state.phase === 'idle' ? (
         <>
