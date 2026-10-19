@@ -208,3 +208,11 @@ p { margin: 0 0 1.1rem; }
 
 /* #main takes programmatic focus after the room closes; it is not a control. */
 #main:focus { outline: none; }
+
+/* ---------- home: pointer to the plugin page ---------- */
+.home-plugin { border-bottom: 1px solid color-mix(in srgb, var(--walnut) 55%, transparent); }
+.home-plugin .section-title { margin-bottom: 0.75rem; }
+.home-plugin-tagline {
+  margin: 0 0 1.5rem; font-family: var(--font-serif); font-style: italic;
+  font-size: clamp(1.15rem, 2.4vw, 1.45rem); color: var(--lamp);
+}

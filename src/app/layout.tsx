@@ -8,13 +8,16 @@ import { LINKS, SITE_URL } from '@/content/site';
 const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-fraunces', display: 'swap' });
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 
+const DESCRIPTION =
+  'AVIOUS: production and arrangement, sound design, finishing and finalization, teaching and mentorship, and the PREMONITION plugin.';
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: 'AVIOUS',
-  description: 'Music production, mixing and plugins by AVIOUS.',
+  description: DESCRIPTION,
   openGraph: {
     title: 'AVIOUS',
-    description: 'Music production, mixing and plugins by AVIOUS.',
+    description: DESCRIPTION,
     url: '/',
     siteName: 'AVIOUS',
     type: 'website',

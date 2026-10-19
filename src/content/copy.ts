@@ -143,6 +143,13 @@ export const PREMONITION = {
   demo: 'Download the free demo',
 };
 
+// The home page's pointer to the plugin page.
+export const HOME_PREMONITION = {
+  label: 'The plugin',
+  body: 'An offline riser renderer for VST3, AU and CLAP. Drop a sound in, render the swell, drag it back into your session.',
+  cta: 'Hear it',
+};
+
 export const ROOM = {
   enterLabel: 'Enter the room',
   enterEyebrow: 'AVIOUS',

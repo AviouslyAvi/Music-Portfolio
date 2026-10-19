@@ -40,3 +40,15 @@ test('footer links to avious.co', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('footer a[href^="https://avious.co"]')).toBeAttached();
 });
+
+test('home has a PREMONITION section that links to /premonition', async ({ page }) => {
+  await page.goto('/');
+  const section = page.getByRole('region', { name: 'PREMONITION' });
+  await expect(section).toBeAttached();
+  await expect(section).toContainText('PREMONITION');
+  await expect(section).toContainText('Echoes of the future.');
+  const link = section.getByRole('link', { name: 'Hear it' });
+  await expect(link).toHaveAttribute('href', '/premonition');
+  const text = await section.innerText();
+  expect(text).not.toMatch(/windows|real-?time|!|\$/i);
+});

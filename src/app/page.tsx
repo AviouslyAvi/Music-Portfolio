@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Section } from '@/components/Section';
 import { RoomGate } from '@/room/RoomGate';
-import { HERO, PHILOSOPHY, EMOTIONAL_PALETTE, SERVICES, COLLAB } from '@/content/copy';
+import { HERO, PHILOSOPHY, EMOTIONAL_PALETTE, SERVICES, COLLAB, PREMONITION, HOME_PREMONITION } from '@/content/copy';
 
 export default function HomePage() {
   return (
@@ -63,6 +63,22 @@ export default function HomePage() {
             <Link href="/services">All services</Link>
           </p>
         </Section>
+
+        <section className="section home-plugin" aria-labelledby="home-premonition">
+          <div className="container">
+            <p className="eyebrow">{HOME_PREMONITION.label}</p>
+            <h2 id="home-premonition" className="section-title wordmark-title">
+              {PREMONITION.wordmark}
+            </h2>
+            <p className="home-plugin-tagline">{PREMONITION.tagline}</p>
+            <p className="prose">{HOME_PREMONITION.body}</p>
+            <div className="cta-row">
+              <Link className="btn" href="/premonition">
+                {HOME_PREMONITION.cta}
+              </Link>
+            </div>
+          </div>
+        </section>
 
         <section className="section closing">
           <div className="container">
