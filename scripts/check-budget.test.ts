@@ -1,6 +1,9 @@
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs module without types
-import { gzipSize, findRoomChunks, checkRoutes, extractChunkUrls, routeFromHtmlPath, checkTotal, BUDGET_BYTES } from './check-budget.mjs';
+import { gzipSize, findRoomChunks, checkRoutes, extractChunkUrls, routeFromHtmlPath, checkTotal, BUDGET_BYTES, assertRoutesNonEmpty, run } from './check-budget.mjs';
 
 describe('gzipSize', () => {
   it('shrinks repetitive data and is positive', () => {
@@ -58,5 +61,45 @@ describe('checkTotal', () => {
     expect(BUDGET_BYTES).toBe(2 * 1024 * 1024);
     expect(checkTotal(BUDGET_BYTES + 1).ok).toBe(false);
     expect(checkTotal(BUDGET_BYTES).ok).toBe(true);
+  });
+});
+
+describe('nested route mapping', () => {
+  it('maps nested html paths', () => {
+    expect(routeFromHtmlPath('work/index.html')).toBe('/work');
+    expect(routeFromHtmlPath('work/slug.html')).toBe('/work/slug');
+    expect(routeFromHtmlPath('a/b/index.html')).toBe('/a/b');
+  });
+});
+
+describe('assertRoutesNonEmpty', () => {
+  it('fails on an empty route list', () => {
+    expect(assertRoutesNonEmpty({})).toHaveLength(1);
+  });
+  it('names a route with zero chunks', () => {
+    const p = assertRoutesNonEmpty({ '/': ['a.js'], '/about': [] });
+    expect(p).toHaveLength(1);
+    expect(p[0]).toContain('/about');
+  });
+  it('fails when / is missing', () => {
+    expect(assertRoutesNonEmpty({ '/about': ['a.js'] }).join()).toContain('Route / is missing');
+  });
+  it('passes a healthy set', () => {
+    expect(assertRoutesNonEmpty({ '/': ['a.js'], '/about': ['a.js'] })).toEqual([]);
+  });
+});
+
+describe('run exit paths', () => {
+  const tmp = () => mkdtempSync(join(tmpdir(), 'budget-'));
+  it('exits 1 when there is no build', () => {
+    expect(run(tmp())).toBe(1);
+  });
+  it('exits 1 when no chunk contains WebGLRenderer', () => {
+    const root = tmp();
+    mkdirSync(join(root, '.next/static/chunks'), { recursive: true });
+    mkdirSync(join(root, '.next/server/app'), { recursive: true });
+    writeFileSync(join(root, '.next/static/chunks/a.js'), 'nothing');
+    writeFileSync(join(root, '.next/server/app/index.html'), '<script src="/_next/static/chunks/a.js"></script>');
+    expect(run(root)).toBe(1);
   });
 });

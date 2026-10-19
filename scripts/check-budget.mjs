@@ -45,9 +45,35 @@ export function extractChunkUrls(html) {
   return [...found];
 }
 
+/** Path relative to .next/server/app (e.g. `work/slug.html`, `work/index.html`) -> route. */
 export function routeFromHtmlPath(file) {
-  const name = basename(file).replace(/\.html$/, '');
-  return name === 'index' ? '/' : `/${name}`;
+  const parts = file.split(/[\\/]+/).filter(Boolean);
+  parts[parts.length - 1] = parts[parts.length - 1].replace(/\.html$/, '');
+  if (parts[parts.length - 1] === 'index') parts.pop();
+  return '/' + parts.join('/');
+}
+
+/** Vacuous-pass guards: returns a list of failure messages (empty when fine). */
+export function assertRoutesNonEmpty(routeToChunks) {
+  const routes = Object.keys(routeToChunks);
+  if (routes.length === 0) return ['No prerendered routes found; refusing to pass without checking anything'];
+  const problems = [];
+  if (!routes.includes('/')) problems.push('Route / is missing from the routes found');
+  for (const r of routes) {
+    if (routeToChunks[r].length === 0) problems.push(`Route ${r} yielded zero chunk URLs; the HTML scan is not working`);
+  }
+  return problems;
+}
+
+/** Recursively list .html files under dir, as paths relative to dir. */
+export function listHtml(dir, rel = '') {
+  const out = [];
+  for (const entry of readdirSync(join(dir, rel), { withFileTypes: true })) {
+    const r = rel ? `${rel}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) out.push(...listHtml(dir, r));
+    else if (entry.name.endsWith('.html')) out.push(r);
+  }
+  return out;
 }
 
 export function checkTotal(totalBytes) {
@@ -70,6 +96,7 @@ export function run(root = process.cwd()) {
     console.error('No build output found. Run `npm run build` first.');
     return 1;
   }
+  // three.js's WebGLRenderer class name survives minification of the room chunk; zero matches means this marker broke.
   const chunkMap = {};
   for (const f of readdirSync(chunkDir)) {
     if (f.endsWith('.js')) chunkMap[f] = readFileSync(join(chunkDir, f), 'utf8');
@@ -98,10 +125,13 @@ export function run(root = process.cwd()) {
   }
 
   const routeToChunks = {};
-  for (const f of readdirSync(appDir)) {
-    if (f.endsWith('.html')) routeToChunks[routeFromHtmlPath(f)] = extractChunkUrls(readFileSync(join(appDir, f), 'utf8'));
+  for (const f of listHtml(appDir)) {
+    routeToChunks[routeFromHtmlPath(f)] = extractChunkUrls(readFileSync(join(appDir, f), 'utf8'));
   }
   console.log('Routes checked: ' + Object.keys(routeToChunks).sort().join(', '));
+  const problems = assertRoutesNonEmpty(routeToChunks);
+  for (const p of problems) console.error(`FAIL: ${p}`);
+  if (problems.length) failed = true;
   const violations = checkRoutes(routeToChunks, roomChunks);
   for (const v of violations) console.error(`FAIL: ${v.message}`);
   if (violations.length) failed = true;
