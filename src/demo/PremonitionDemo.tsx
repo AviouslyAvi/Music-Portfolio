@@ -17,6 +17,8 @@ const PHASE_TEXT: Record<DemoState['phase'], string> = {
   done: 'Finished. Choose another sound or continue.',
   skipped: 'Demo skipped',
 };
+// On its own page there is nowhere to continue to, so the copy only offers another sound.
+const STANDALONE_DONE = 'Finished. Choose another sound.';
 
 export function PremonitionDemo({
   bootSequence,
@@ -30,6 +32,8 @@ export function PremonitionDemo({
     bootSequence ? s : { ...s, phase: 'ready' },
   );
   const { play, stop } = useRenderedAudio();
+  // Skip and Continue only make sense inside the room, which passes onFinish.
+  const inRoom = onFinish !== undefined;
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -67,20 +71,31 @@ export function PremonitionDemo({
     <div className={styles.root}>
       <p role="status" className={styles.srOnly}>
         {state.phase === 'done' && state.audioError
-          ? 'Audio unavailable. Choose another sound or continue.'
-          : PHASE_TEXT[state.phase]}
+          ? inRoom
+            ? 'Audio unavailable. Choose another sound or continue.'
+            : 'Audio unavailable. Choose another sound.'
+          : state.phase === 'done' && !inRoom
+            ? STANDALONE_DONE
+            : PHASE_TEXT[state.phase]}
       </p>
       {state.phase === 'booting' || state.phase === 'idle' ? (
         <>
           <BootSequence onDone={onBootDone} />
-          <button type="button" className={`${styles.btn} ${styles.floatSkip}`} data-demo-skip="" onClick={onSkip}>
-            Skip
-          </button>
+          {inRoom && (
+            <button type="button" className={`${styles.btn} ${styles.floatSkip}`} data-demo-skip="" onClick={onSkip}>
+              Skip
+            </button>
+          )}
         </>
       ) : state.phase === 'skipped' ? (
         <div className={styles.boot}>Demo skipped.</div>
       ) : (
-        <DawScreen state={state} onPick={onPick} onSkip={onSkip} onContinue={onContinue} />
+        <DawScreen
+          state={state}
+          onPick={onPick}
+          onSkip={inRoom ? onSkip : undefined}
+          onContinue={inRoom ? onContinue : undefined}
+        />
       )}
     </div>
   );

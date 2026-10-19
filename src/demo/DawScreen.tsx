@@ -24,8 +24,10 @@ export function DawScreen({
 }: {
   state: DemoState;
   onPick: (soundId: string) => void;
-  onSkip: () => void;
-  onContinue: () => void;
+  /** Omitted outside the room: no Skip button is rendered. */
+  onSkip?: () => void;
+  /** Omitted outside the room: no Continue button is rendered. */
+  onContinue?: () => void;
 }) {
   const playing = state.phase === 'playing';
   const done = state.phase === 'done';
@@ -38,9 +40,11 @@ export function DawScreen({
         <span className={styles.transportLabel}>Session</span>
         <span className={styles.led} data-on={playing} aria-hidden="true" />
         <span className={styles.readout}>{playing ? 'Rendering' : done ? 'Rendered' : 'Stopped'}</span>
-        <button type="button" className={styles.btn} data-demo-skip="" onClick={onSkip}>
-          Skip
-        </button>
+        {onSkip && (
+          <button type="button" className={styles.btn} data-demo-skip="" onClick={onSkip}>
+            Skip
+          </button>
+        )}
       </div>
 
       <div className={styles.body}>
@@ -89,10 +93,12 @@ export function DawScreen({
               : playing && current
                 ? `Rendering ${current.label}`
                 : done && current
-                  ? `${current.label} rendered. Pick another or continue.`
+                  ? onContinue
+                    ? `${current.label} rendered. Pick another or continue.`
+                    : `${current.label} rendered. Pick another to hear it.`
                   : 'Pick a sound to hear it through the plugin.'}
           </p>
-          {done && (
+          {done && onContinue && (
             <button type="button" className={`${styles.btn} ${styles.primary}`} onClick={onContinue}>
               Continue to site
             </button>

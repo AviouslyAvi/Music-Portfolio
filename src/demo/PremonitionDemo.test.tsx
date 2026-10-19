@@ -19,7 +19,7 @@ beforeEach(() => {
 
 describe('PremonitionDemo', () => {
   it('renders ready with every sound label when bootSequence is false', () => {
-    render(<PremonitionDemo bootSequence={false} />);
+    render(<PremonitionDemo bootSequence={false} onFinish={vi.fn()} />);
     for (const s of SOUNDS) expect(screen.getByRole('button', { name: s.label })).toBeTruthy();
     expect(screen.getByText('Echoes of the future.')).toBeTruthy();
     expect(screen.getByRole('button', { name: /skip/i })).toBeTruthy();
@@ -27,7 +27,7 @@ describe('PremonitionDemo', () => {
 
   it('shows Audio unavailable on rejection, reaches done, and Skip stays enabled', async () => {
     play.mockRejectedValue(new Error('blocked'));
-    render(<PremonitionDemo bootSequence={false} />);
+    render(<PremonitionDemo bootSequence={false} onFinish={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: SOUNDS[0].label }));
     await waitFor(() => expect(screen.getAllByText(/Audio unavailable/).length).toBeGreaterThan(0));
     expect(screen.getByRole('status').textContent).toMatch(/audio unavailable/i);
@@ -76,10 +76,65 @@ describe('PremonitionDemo', () => {
   });
 
   it('Tab, modifier keys and keys on the Skip button do not end boot', () => {
-    render(<PremonitionDemo bootSequence={true} />);
+    render(<PremonitionDemo bootSequence={true} onFinish={vi.fn()} />);
     for (const key of ['Tab', 'Shift', 'Control', 'Alt', 'Meta']) fireEvent.keyDown(window, { key });
     fireEvent.keyDown(screen.getByRole('button', { name: /skip/i }), { key: 'Enter' });
     expect(screen.queryByRole('button', { name: SOUNDS[0].label })).toBeNull();
+  });
+
+  describe('standalone (no onFinish, as on /premonition)', () => {
+    it('renders no Skip and no Continue, before or after a sound plays', async () => {
+      play.mockResolvedValue(undefined);
+      const { container } = render(<PremonitionDemo bootSequence={false} />);
+      expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
+      expect(container.querySelector('[data-demo-skip]')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: SOUNDS[0].label }));
+      await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/finished/i));
+      expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /continue to site/i })).toBeNull();
+      expect(screen.getByRole('status').textContent).not.toMatch(/continue/i);
+      expect(screen.queryByText(/or continue/i)).toBeNull();
+    });
+
+    it('lets the visitor play sounds repeatedly and never tracks a skip', async () => {
+      play.mockResolvedValue(undefined);
+      render(<PremonitionDemo bootSequence={false} />);
+      for (const s of [SOUNDS[0], SOUNDS[1], SOUNDS[0]]) {
+        const b = screen.getByRole('button', { name: s.label }) as HTMLButtonElement;
+        await waitFor(() => expect(b.disabled).toBe(false));
+        fireEvent.click(b);
+        await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/finished/i));
+      }
+      expect(play).toHaveBeenCalledTimes(3);
+      expect(track).not.toHaveBeenCalledWith('demo_skipped');
+    });
+
+    it('still reports audio failure and stays usable', async () => {
+      play.mockRejectedValue(new Error('blocked'));
+      render(<PremonitionDemo bootSequence={false} />);
+      fireEvent.click(screen.getByRole('button', { name: SOUNDS[0].label }));
+      await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/audio unavailable/i));
+      expect(screen.getByRole('status').textContent).not.toMatch(/continue/i);
+      expect((screen.getByRole('button', { name: SOUNDS[1].label }) as HTMLButtonElement).disabled).toBe(false);
+      expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
+    });
+  });
+
+  describe('in the room (onFinish given)', () => {
+    it('renders Skip (with data-demo-skip) and Continue after a sound', async () => {
+      play.mockResolvedValue(undefined);
+      const { container } = render(<PremonitionDemo bootSequence={false} onFinish={vi.fn()} />);
+      expect(container.querySelector('[data-demo-skip]')).not.toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: SOUNDS[0].label }));
+      expect(await screen.findByRole('button', { name: /continue to site/i })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /skip/i })).toBeTruthy();
+      expect(screen.getByRole('status').textContent).toMatch(/continue/i);
+    });
+
+    it('renders Skip during the boot sequence', () => {
+      const { container } = render(<PremonitionDemo bootSequence={true} onFinish={vi.fn()} />);
+      expect(container.querySelector('[data-demo-skip]')).not.toBeNull();
+    });
   });
 
   describe('stale play promise after Skip', () => {
