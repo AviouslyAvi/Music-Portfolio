@@ -142,3 +142,23 @@ export const PREMONITION = {
   buy: 'Buy Premonition',
   demo: 'Download the free demo',
 };
+
+export const ROOM = {
+  enterLabel: 'Enter the room',
+  enterEyebrow: 'AVIOUS',
+  enterTitle: 'Step into the studio',
+  enterBody:
+    'A small walk-in room with sound. Play a track on the iPod, then sit at the computer to hear Premonition. You can skip to the site at any time.',
+  enter: 'Enter',
+  skip: 'Skip',
+  loading: 'Loading the room',
+  canvasLabel: 'AVIOUS studio room. Use the buttons below or the keyboard to move and interact.',
+  hint: 'WASD or arrow keys to move. Mouse to look (click to capture the mouse). E to use what is nearby. Esc releases the mouse.',
+  nowPlaying: 'Now playing',
+  nearbyIpod: 'Near the iPod. Press E to play the next track.',
+  nearbyComputer: 'Near the computer. Press E to use it.',
+  ipodButton: 'Play next track (iPod)',
+  computerButton: 'Use the computer',
+  leaveButton: 'Leave the room',
+  demoLabel: 'Premonition demo',
+};
