@@ -30,3 +30,4 @@ tsconfig.tsbuildinfo
 # Vitest cache
 .vitest/
 .vercel
+.spike/
