@@ -7,8 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import * as THREE from 'three';
-import { PremonitionDemo } from '@/demo/PremonitionDemo';
 import { ROOM } from '@/content/copy';
+import { LINKS } from '@/content/site';
 import { buildRoom, type Room } from './buildRoom';
 import { stepPlayer, normalizeYaw, type PlayerState } from './movement';
 import {
@@ -20,6 +20,12 @@ import { Hud } from './Hud';
 import { InteractPrompt } from './InteractPrompt';
 import { IpodScreen } from './ipod/IpodScreen';
 import type { IpodAction } from './ipod/menu';
+import { PluginScreen, SEAT_POSE, SOURCES, updateRoom, makeHeadphones } from './sequence/stubs';
+import { initialSeq, seqReducer, shouldHoldRoomAudio, type SeqEvent, type SeqState } from './sequence/machine';
+import { Terminal } from './sequence/Terminal';
+import { Portal } from './sequence/Portal';
+import { dollyProgress, PORTAL_MS } from './sequence/portalMath';
+import { attachHeadphones, poseHeadphones, HEADPHONE_DROP_MS } from './sequence/headphones';
 import styles from './room.module.css';
 
 export type RoomAudio = { ctx: AudioContext; player: TrackPlayer };
@@ -37,16 +43,17 @@ const MOVE_RESPONSE = 9; // 1/s; about 110 ms to settle
 // Mouse look is spread over a few frames so it glides rather than steps.
 const LOOK_RESPONSE = 22; // 1/s
 const MAX_FRAME_DT = 0.05; // a hitch must not become a lurch
-// Seated in front of the screen, looking down at it a little.
-const DESK_POSE = { x: COMPUTER_POS.x, z: -1.85, yaw: 0, pitch: -0.5 };
+// The portal pulls the camera this far toward the screen, and opens the lens a little.
+const PORTAL_PULL = 0.9;
+const PORTAL_FOV_GAIN = 25;
 
 // Close in front of the iPod, looking down at its screen.
 const IPOD_POSE = { x: IPOD_POS.x, z: -2.05, yaw: 0, pitch: -1.0 };
 const VOLUME_STEP = 0.05;
 
 type Pose = { x: number; z: number; yaw: number; pitch: number };
-type Mode = 'walk' | 'easing' | 'demo' | 'ipod';
-type Api = { interact(t: Interactable): void; closeDemo(): void; closeIpod(): void; ipodToComputer(): void };
+type Mode = 'walk' | 'easing' | 'seat' | 'ipod';
+type Api = { interact(t: Interactable): void; standUp(): void; closeIpod(): void; ipodToComputer(): void };
 
 const FORWARD = new Set(['KeyW', 'ArrowUp']);
 const BACK = new Set(['KeyS', 'ArrowDown']);
@@ -86,6 +93,10 @@ function inClickRange(p: PlayerState['pos'], t: Interactable): boolean {
 
 const NO_FAILURES: string[] = [];
 
+function defaultNavigate(url: string): void {
+  window.location.assign(url);
+}
+
 const smootherstep = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -94,12 +105,15 @@ export default function RoomExperience({
   onFail,
   audio = null,
   audioFailures = NO_FAILURES,
+  navigate = defaultNavigate,
 }: {
   onLeave: () => void;
   onFail: () => void;
   audio?: RoomAudio | null;
   /** Track ids (or 'audio-context') the player reported through onError. */
   audioFailures?: string[];
+  /** Hard navigation for the portal. Injected so tests can see where it goes. */
+  navigate?: (url: string) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -117,10 +131,46 @@ export default function RoomExperience({
   const [trackIndex, setTrackIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(DEFAULT_VOLUME);
-  const [demoOpen, setDemoOpen] = useState(false);
   const [ipodOpen, setIpodOpen] = useState(false);
   const wasOpen = useRef(false);
   const wasIpodOpen = useRef(false);
+
+  // The visit. The ref is the truth (updated synchronously, so two events in one
+  // tick cannot disagree); the state only drives rendering.
+  const [seq, setSeq] = useState<SeqState>(initialSeq);
+  const seqRef = useRef<SeqState>(initialSeq);
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const leaveRef = useRef(onLeave);
+  leaveRef.current = onLeave;
+  const leftRef = useRef(false);
+  const dispatchSeq = useCallback((e: SeqEvent) => {
+    const prev = seqRef.current;
+    const next = seqReducer(prev, e);
+    if (next === prev) return;
+    seqRef.current = next;
+    setSeq(next);
+    // Seated means the room is held; standing or leaving releases it. A visitor's own pause is never undone.
+    const player = audioRef.current?.player;
+    if (player) {
+      const was = shouldHoldRoomAudio(prev.stage);
+      const now = shouldHoldRoomAudio(next.stage);
+      if (!was && now) player.hold();
+      else if (was && !now && !document.hidden) player.release();
+    }
+    if (next.stage !== 'leaving' || leftRef.current) return;
+    leftRef.current = true;
+    if (e.type === 'PORTAL_DONE') {
+      try {
+        window.sessionStorage.setItem('room:left', '1');
+      } catch {
+        // storage may be blocked; the room is simply offered again
+      }
+      navigateRef.current(LINKS.premonitionStore);
+    } else {
+      leaveRef.current();
+    }
+  }, []);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -170,12 +220,19 @@ export default function RoomExperience({
 
       const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.05, 30);
       camera.rotation.order = 'YXZ';
+      scene.add(camera); // the headphones ride on the camera, so it must be in the scene
+      const headphones = makeHeadphones();
+      let detachHeadphones: (() => void) | null = null;
+      // 1 = lowering, -1 = lifting, 0 = still. hpT is how far down they are, 0..1.
+      let hpDir: 0 | 1 | -1 = 0;
+      let hpT = 0;
+      let portalStart = -1;
 
       const reduced = prefersReducedMotion();
       let player: PlayerState = { pos: { ...START.pos }, yaw: START.yaw };
       let pitch = 0;
       let mode: Mode = 'walk';
-      let ease: { from: PlayerState; fromPitch: number; start: number; to: Pose; then: 'demo' | 'ipod' | 'walk' } | null = null;
+      let ease: { from: PlayerState; fromPitch: number; start: number; to: Pose; then: 'seat' | 'ipod' | 'walk' } | null = null;
       let returnPose: Pose = { x: START.pos.x, z: START.pos.z, yaw: START.yaw, pitch: 0 };
       const keys = new Set<string>();
       // Input as the player feels it (ramped), and mouse travel not yet applied.
@@ -220,11 +277,30 @@ export default function RoomExperience({
         }
       };
 
-      const openDemo = () => {
-        mode = 'demo';
+      const sitDown = () => {
+        mode = 'seat';
         ease = null;
-        suspendAudio();
-        setDemoOpen(true);
+        dispatchSeq({ type: 'SEATED' });
+        detachHeadphones?.();
+        detachHeadphones = attachHeadphones(camera, headphones);
+        hpT = reduced ? 1 : 0;
+        hpDir = 1;
+        poseHeadphones(headphones, hpT);
+      };
+
+      // Escape (or the plugin closing): stand up, lift the headphones, give the room its sound back.
+      const standUp = () => {
+        const before = seqRef.current.stage;
+        dispatchSeq({ type: 'ESCAPE' });
+        if (seqRef.current.stage === before) return;
+        startEase(returnPose, 'walk');
+        if (detachHeadphones) {
+          if (reduced || hpT <= 0) {
+            detachHeadphones();
+            detachHeadphones = null;
+            hpDir = 0;
+          } else hpDir = -1;
+        }
       };
 
       const openIpod = () => {
@@ -233,7 +309,7 @@ export default function RoomExperience({
         setIpodOpen(true);
       };
 
-      const startEase = (to: Pose, then: 'demo' | 'ipod' | 'walk') => {
+      const startEase = (to: Pose, then: 'seat' | 'ipod' | 'walk') => {
         exitLock();
         keys.clear();
         felt.forward = felt.strafe = felt.turn = 0;
@@ -245,10 +321,15 @@ export default function RoomExperience({
 
       // Pressing E (or clicking the object or its prompt) zooms the camera in; the
       // computer opens the plugin screen, the iPod opens the click-wheel iPod.
+      const beginSeat = () => {
+        dispatchSeq({ type: 'INTERACT' });
+        startEase(SEAT_POSE, 'seat');
+      };
       const interact = (t: Interactable) => {
         if (mode !== 'walk') return;
         returnPose = { x: player.pos.x, z: player.pos.z, yaw: player.yaw, pitch };
-        startEase(t === 'ipod' ? IPOD_POSE : DESK_POSE, t === 'ipod' ? 'ipod' : 'demo');
+        if (t === 'ipod') startEase(IPOD_POSE, 'ipod');
+        else beginSeat();
       };
 
       apiRef.current = {
@@ -261,20 +342,17 @@ export default function RoomExperience({
         ipodToComputer() {
           if (mode !== 'ipod') return;
           setIpodOpen(false);
-          startEase(DESK_POSE, 'demo');
+          beginSeat();
         },
-        closeDemo() {
-          if (mode !== 'demo') return;
-          mode = 'walk';
-          keys.clear();
-          if (!document.hidden) resumeAudio();
-          setDemoOpen(false);
-        },
+        standUp,
       };
       cleanups.push(() => {
         apiRef.current = null;
       });
 
+      listen(window, 'keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Escape') standUp();
+      });
       // Keyboard: always available, with or without the pointer lock.
       listen(window, 'keydown', (e: KeyboardEvent) => {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -416,7 +494,7 @@ export default function RoomExperience({
             if (t >= 1) {
               const then = ease.then;
               ease = null;
-              if (then === 'demo') openDemo();
+              if (then === 'seat') sitDown();
               else if (then === 'ipod') openIpod();
               else {
                 mode = 'walk';
@@ -425,8 +503,37 @@ export default function RoomExperience({
             }
           }
 
-          camera.position.set(player.pos.x, EYE_HEIGHT, player.pos.z);
+          // Headphones lower after sitting and lift on standing.
+          if (hpDir !== 0) {
+            hpT = Math.max(0, Math.min(1, hpT + hpDir * ((dt * 1000) / HEADPHONE_DROP_MS)));
+            if (reduced) hpT = hpDir === 1 ? 1 : 0;
+            poseHeadphones(headphones, hpT);
+            if (hpDir === 1 && hpT >= 1) {
+              hpDir = 0;
+              dispatchSeq({ type: 'HEADPHONES_ON' });
+            } else if (hpDir === -1 && hpT <= 0) {
+              hpDir = 0;
+              detachHeadphones?.();
+              detachHeadphones = null;
+            }
+          }
+
+          // The portal pulls the camera forward, accelerating. Reduced motion: no dolly.
+          let pull = 0;
+          if (seqRef.current.stage === 'portal') {
+            if (portalStart < 0) portalStart = now;
+            pull = reduced ? 0 : dollyProgress((now - portalStart) / PORTAL_MS);
+          } else portalStart = -1;
+          const fwdX = -Math.sin(player.yaw);
+          const fwdZ = -Math.cos(player.yaw);
+          camera.position.set(player.pos.x + fwdX * PORTAL_PULL * pull, EYE_HEIGHT, player.pos.z + fwdZ * PORTAL_PULL * pull);
           camera.rotation.set(pitch, player.yaw, 0);
+          const fov = FOV + PORTAL_FOV_GAIN * pull;
+          if (camera.fov !== fov) {
+            camera.fov = fov;
+            camera.updateProjectionMatrix();
+          }
+          updateRoom(built, { x: player.pos.x, z: player.pos.z, yaw: player.yaw }, dt);
           r.render(scene, camera);
 
           const near = mode === 'walk' ? nearestInteractable(player.pos) : null;
@@ -484,10 +591,10 @@ export default function RoomExperience({
           suspendAudio();
         } else {
           startLoop();
-          if (mode !== 'demo') resumeAudio();
+          if (!shouldHoldRoomAudio(seqRef.current.stage)) resumeAudio();
         }
       });
-      cleanups.push(stopLoop, exitLock);
+      cleanups.push(stopLoop, exitLock, () => detachHeadphones?.());
       if (!document.hidden) startLoop();
     } catch {
       // Set up as far as it got; tear it down and hand back to the normal site.
@@ -533,25 +640,19 @@ export default function RoomExperience({
       rootRef.current?.focus();
     }
   }, [ipodOpen]);
+  // The boot terminal and the plugin take focus; standing up hands it back to the room.
+  const overlayShown = seq.stage === 'boot' || seq.stage === 'plugin';
   useEffect(() => {
-    if (demoOpen) {
+    if (overlayShown) {
       wasOpen.current = true;
       overlayRef.current?.focus();
-      const onKey = (e: KeyboardEvent) => {
-        if (e.key !== 'Escape') return;
-        // The demo's own Skip, so demo_skipped is tracked and its audio stops.
-        const skip = overlayRef.current?.querySelector<HTMLButtonElement>('[data-demo-skip]');
-        if (skip) skip.click();
-        else apiRef.current?.closeDemo();
-      };
-      window.addEventListener('keydown', onKey);
-      return () => window.removeEventListener('keydown', onKey);
+      return;
     }
     if (wasOpen.current) {
       wasOpen.current = false;
       rootRef.current?.focus();
     }
-  }, [demoOpen]);
+  }, [overlayShown]);
 
   const onInteract = useCallback((t: Interactable) => apiRef.current?.interact(t), []);
   const leaveRef0 = useRef(onLeave);
@@ -589,15 +690,21 @@ export default function RoomExperience({
     },
     [router],
   );
-  // After the demo, finished or skipped, the full site opens: the same path as
-  // "Leave the room" (room:left is set and the room unmounts).
-  const leaveRef = useRef(onLeave);
-  leaveRef.current = onLeave;
-  const onFinish = useCallback(() => leaveRef.current(), []);
+  // Skip to site works in every stage: the machine moves to leaving, which unmounts the room once.
+  const onSkip = useCallback(() => dispatchSeq({ type: 'SKIP' }), [dispatchSeq]);
+  const onBootDone = useCallback(() => dispatchSeq({ type: 'BOOT_DONE' }), [dispatchSeq]);
+  const onPortalDone = useCallback(() => dispatchSeq({ type: 'PORTAL_DONE' }), [dispatchSeq]);
+  const onSoundPlayed = useCallback((id: string) => dispatchSeq({ type: 'SOUND_PLAYED', id }), [dispatchSeq]);
+  const onEngineReady = useCallback(() => dispatchSeq({ type: 'ENGINE_READY' }), [dispatchSeq]);
+  const onEngineFailed = useCallback(() => dispatchSeq({ type: 'ENGINE_FAILED' }), [dispatchSeq]);
+  const onPluginClose = useCallback(() => apiRef.current?.standUp(), []);
+  const stage = seq.stage;
+  // The engine starts loading at the E press, so the plugin mounts (out of sight) from seating on.
+  const pluginMounted = stage === 'seating' || stage === 'headphones' || stage === 'boot' || stage === 'plugin';
 
   return (
-    <div ref={rootRef} className={styles.room} role="dialog" aria-modal="true" aria-label="AVIOUS studio room" tabIndex={-1}>
-      <div inert={demoOpen || ipodOpen}>
+    <div ref={rootRef} className={styles.room} role="dialog" aria-modal="true" aria-label="AVIOUS studio room" tabIndex={-1} data-stage={stage}>
+      <div inert={overlayShown || ipodOpen}>
         <div ref={wrapRef} className={styles.canvasWrap} data-testid="room-canvas" role="img" aria-label={ROOM.canvasLabel} />
         <InteractPrompt ref={ipodPromptRef} target="ipod" onActivate={() => onInteract('ipod')} />
         <InteractPrompt ref={computerPromptRef} target="computer" onActivate={() => onInteract('computer')} />
@@ -605,20 +712,42 @@ export default function RoomExperience({
       <Hud
         trackTitle={playing ? title : ''}
         audioError={isAudioUnavailable(audioFailures, TRACKS, trackIndex)}
-        onSkip={onLeave}
+        onSkip={onSkip}
       />
       {ipodOpen && (
         <div className={styles.ipodOverlay} role="dialog" aria-modal="true" aria-label={ROOM.ipodLabel}>
           <IpodScreen tracks={TRACKS} currentIndex={trackIndex} playing={playing} volume={volume} onAction={onIpodAction} />
         </div>
       )}
-      {demoOpen && (
-        <div ref={overlayRef} className={styles.demoOverlay} role="dialog" aria-modal="true" aria-label={ROOM.demoLabel} tabIndex={-1}>
-          <div className={styles.demoFrame}>
-            <PremonitionDemo bootSequence onFinish={onFinish} />
+      <div
+        ref={overlayRef}
+        className={styles.seqOverlay}
+        data-visible={String(overlayShown)}
+        inert={!overlayShown}
+        role="dialog"
+        aria-modal={overlayShown ? 'true' : undefined}
+        aria-label={ROOM.demoLabel}
+        tabIndex={-1}
+      >
+        {stage === 'boot' && (
+          <div className={styles.seqFrame}>
+            <Terminal engineReady={seq.engineReady} failed={seq.loadError} onDone={onBootDone} />
           </div>
-        </div>
-      )}
+        )}
+        {pluginMounted && (
+          <div className={styles.seqFrame} data-hidden={String(stage !== 'plugin')}>
+            <PluginScreen
+              sources={SOURCES}
+              playedIds={seq.heard}
+              onSoundPlayed={onSoundPlayed}
+              onReady={onEngineReady}
+              onLoadError={onEngineFailed}
+              onClose={onPluginClose}
+            />
+          </div>
+        )}
+      </div>
+      {stage === 'portal' && <Portal onDone={onPortalDone} reduced={prefersReducedMotion()} />}
     </div>
   );
 }
