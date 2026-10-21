@@ -1,0 +1,21 @@
+/* The machine: green phosphor on black, a deliberate break from the warm room. */
+.term {
+  position: relative; width: 100%; height: 100%; min-height: 18rem; overflow: hidden;
+  background: #020503; color: #3dff7a;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9rem; line-height: 1.7;
+  text-shadow: 0 0 6px rgba(61, 255, 122, 0.55);
+}
+.field { position: absolute; inset: 0; display: flex; justify-content: space-between; opacity: 0.35; pointer-events: none; }
+.col {
+  width: 1ch; white-space: pre; line-height: 1.1; font-size: 0.8rem; word-break: break-all;
+  animation: fall linear infinite; will-change: transform;
+}
+@keyframes fall { from { transform: translateY(-60%); } to { transform: translateY(40%); } }
+.lines { position: relative; padding: 1.5rem; }
+.line { color: #3dff7a; }
+.fail { color: #ff8f6b; text-shadow: none; }
+.cursor { display: inline-block; width: 0.6rem; height: 1rem; background: #3dff7a; vertical-align: middle; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .col, .cursor { animation: none; }
+}
