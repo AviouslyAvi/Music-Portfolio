@@ -182,7 +182,7 @@ export function buildRoom(): Room {
   lamp.name = 'lamp-light';
   lamp.position.copy(bulb);
   group.add(lamp);
-  const fill = new THREE.HemisphereLight(0x5a5e68, 0x3a2c20, 1.7);
+  const fill = new THREE.HemisphereLight(0x7a6355, 0x4a2c1c, 1.7);
   fill.name = 'fill-light';
   group.add(fill);
 

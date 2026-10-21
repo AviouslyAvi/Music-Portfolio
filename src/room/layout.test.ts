@@ -62,6 +62,18 @@ describe('layout', () => {
     expect(ROOM_COLORS.lamp).toBe(0xe9a85f);
     expect(ROOM_COLORS.offWhite).toBe(0xefe6d8);
   });
+  it('palette carries the named AVIOUS colours, all distinct, none white', () => {
+    const names = ['oxblood', 'terracotta', 'sage', 'midnight', 'mustard', 'espresso', 'cotton'] as const;
+    const hexes = names.map((n) => ROOM_COLORS[n]);
+    for (const h of hexes) {
+      expect(typeof h).toBe('number');
+      expect(h).not.toBe(0xffffff);
+    }
+    expect(new Set(Object.values(ROOM_COLORS)).size).toBe(Object.values(ROOM_COLORS).length);
+    // cotton is the lightest and still clearly off-white
+    expect(ROOM_COLORS.cotton & 0xff).toBeLessThan(0xf0);
+    expect(Math.max(...hexes)).toBe(ROOM_COLORS.cotton);
+  });
 
   it('has no desk leg export', () => {
     expect('DESK_LEG' in L).toBe(false);
