@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as L from './layout';
 import {
   ROOM_BOUNDS, SOLIDS, START, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable,
-  DESK, SPEAKER_LEFT, SPEAKER_RIGHT, KEYBOARD_STAND, SPEAKERS, TWEETER_Y, SEAT_POSE,
+  DESK, SPEAKER_LEFT, SPEAKER_RIGHT, KEYBOARD_STAND, SPEAKERS, TWEETER_Y, SEAT_POSE, aimYaw,
 } from './layout';
 import type { Box } from './movement';
 import { ROOM_COLORS } from './palette';
@@ -134,5 +134,26 @@ describe('layout', () => {
     expect(SEAT_POSE.z).toBeLessThan(ROOM_BOUNDS.maxZ - PLAYER_RADIUS);
     expect(SEAT_POSE.yaw).toBe(0);
     expect(Math.hypot(SEAT_POSE.x - COMPUTER_POS.x, SEAT_POSE.z - COMPUTER_POS.z)).toBeLessThanOrEqual(INTERACT_RADIUS);
+  });
+
+  it('aimYaw faces the listener straight on from every compass point', () => {
+    // A cabinet facing +z turned by yaw faces (sin yaw, cos yaw).
+    for (let deg = 0; deg < 360; deg += 15) {
+      const a = (deg * Math.PI) / 180;
+      const dir = { x: Math.sin(a) * 3, z: Math.cos(a) * 3 };
+      const y = aimYaw({ x: 0.4, z: -1 }, { x: 0.4 + dir.x, z: -1 + dir.z });
+      expect(Math.sin(y)).toBeCloseTo(Math.sin(a), 9);
+      expect(Math.cos(y)).toBeCloseTo(Math.cos(a), 9);
+      expect(y).toBeGreaterThan(-Math.PI);
+      expect(y).toBeLessThanOrEqual(Math.PI);
+    }
+    expect(aimYaw({ x: 0, z: 0 }, { x: 0, z: 5 })).toBe(0);
+    expect(aimYaw({ x: 0, z: 0 }, { x: 0, z: -5 })).toBeCloseTo(Math.PI);
+  });
+
+  it('aimYaw is finite and 0 when from equals to', () => {
+    expect(aimYaw({ x: 1, z: 2 }, { x: 1, z: 2 })).toBe(0);
+    expect(Number.isFinite(aimYaw({ x: 1, z: 2 }, { x: 1 + 1e-300, z: 2 }))).toBe(true);
+    expect(aimYaw({ x: NaN, z: 0 }, { x: 0, z: 0 })).toBe(0);
   });
 });

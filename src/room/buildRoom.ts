@@ -3,7 +3,8 @@
 // The room is muted and dim; only the iPod and the computer screen glow.
 import * as THREE from 'three';
 import { ROOM_COLORS } from './palette';
-import { DESK, KEYBOARD_STAND, SPEAKER_LEFT, SPEAKER_RIGHT, IPOD_POS, COMPUTER_POS } from './layout';
+import { normalizeYaw } from './movement';
+import { SPEAKERS, START, aimYaw, DESK, KEYBOARD_STAND, SPEAKER_LEFT, SPEAKER_RIGHT, IPOD_POS, COMPUTER_POS } from './layout';
 import {
   Kit, makeMaterials, addShell, addSlatWall, addDesk, addKeyboardStand, addSpeaker, addWindow, addShelves, addPlant,
   addGuitar, addClock, addPosters, addRug, addChair, addDeskLamp, addKeyboard88, addIpodCable, addHeadphones, type V3,
@@ -18,6 +19,8 @@ export type Room = {
   /** Detached over-ear headphones; the sequence adds and animates them. */
   headphones: THREE.Object3D;
   speakers: [THREE.Object3D, THREE.Object3D];
+  /** The turning cabinet of each speaker (left, right); updateRoom aims them. */
+  cabinets: [THREE.Object3D, THREE.Object3D];
   triangleCount: number;
   dispose(): void;
 };
@@ -120,6 +123,23 @@ function countTriangles(root: THREE.Object3D): number {
   return n;
 }
 
+/** How fast the speakers turn toward the listener (per second, exponential ease). */
+export const AIM_RESPONSE = 6;
+
+/**
+ * Per-frame room animation: each speaker cabinet eases toward the listener by the
+ * shortest way round. The ease is exponential so it never overshoots, whatever dt is.
+ */
+export function updateRoom(room: Room, listener: { x: number; z: number; yaw: number }, dt: number): void {
+  const t = Number.isFinite(dt) && dt > 0 ? dt : 0;
+  if (t === 0) return;
+  const k = 1 - Math.exp(-AIM_RESPONSE * t);
+  room.cabinets.forEach((cab, i) => {
+    const target = aimYaw(SPEAKERS[i], listener);
+    cab.rotation.y = normalizeYaw(cab.rotation.y + normalizeYaw(target - cab.rotation.y) * k);
+  });
+}
+
 export function buildRoom(): Room {
   const k = new Kit();
   const m = makeMaterials(k);
@@ -143,6 +163,8 @@ export function buildRoom(): Room {
     addSpeaker(k, group, m, 'speaker-left', SPEAKER_LEFT, 0.25),
     addSpeaker(k, group, m, 'speaker-right', SPEAKER_RIGHT, -0.25),
   ];
+  const cabinets = speakers.map((sp) => sp.getObjectByName(`${sp.name}-cabinet`)!) as [THREE.Object3D, THREE.Object3D];
+  cabinets.forEach((c, i) => (c.rotation.y = aimYaw(SPEAKERS[i], START.pos)));
   const ipod = addIpod(k, group);
   const computer = addComputer(k, group);
   addKeyboard88(k, group, m, KEYBOARD_STAND);
@@ -172,6 +194,7 @@ export function buildRoom(): Room {
     screen: computer.getObjectByName('computer-screen')!,
     headphones,
     speakers,
+    cabinets,
     triangleCount: countTriangles(group),
     dispose() {
       if (disposed) return;

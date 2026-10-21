@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect, afterEach } from 'vitest';
 import * as THREE from 'three';
-import { buildRoom, MAT_TOP_Y } from './buildRoom';
+import { buildRoom, updateRoom, AIM_RESPONSE, MAT_TOP_Y } from './buildRoom';
 import { KEYBOARD_STAND_TOP } from './furniture';
-import { IPOD_POS, COMPUTER_POS, SOLIDS, RUG, KEYBOARD_STAND } from './layout';
+import { IPOD_POS, COMPUTER_POS, SOLIDS, RUG, KEYBOARD_STAND, SPEAKERS, aimYaw } from './layout';
 
 type Built = ReturnType<typeof buildRoom>;
 let built: Built | null = null;
@@ -270,5 +270,63 @@ describe('buildRoom', () => {
     const r = make();
     expect(r.screen.name).toBe('computer-screen');
     expect(r.computer.getObjectById(r.screen.id)).toBe(r.screen);
+  });
+
+  const yawsOf = (r: Built) => r.cabinets.map((c) => c.rotation.y);
+  const targetsFor = (l: { x: number; z: number }) => SPEAKERS.map((sp) => aimYaw(sp, l));
+  const L = { x: 0.9, z: 0.5, yaw: 0 };
+
+  it('updateRoom with dt 0 changes nothing', () => {
+    const r = make();
+    const before = yawsOf(r);
+    updateRoom(r, L, 0);
+    expect(yawsOf(r)).toEqual(before);
+  });
+
+  it('updateRoom with dt 10 never overshoots (lands on the target)', () => {
+    const r = make();
+    const target = targetsFor(L);
+    updateRoom(r, L, 10);
+    yawsOf(r).forEach((y, i) => expect(Math.abs(y - target[i])).toBeLessThan(1e-3));
+  });
+
+  it('updateRoom survives NaN, negative and infinite dt', () => {
+    const r = make();
+    const before = yawsOf(r);
+    for (const dt of [NaN, -1, Infinity]) updateRoom(r, L, dt);
+    for (const y of yawsOf(r)) expect(Number.isFinite(y)).toBe(true);
+    expect(AIM_RESPONSE).toBe(6);
+    expect(before.length).toBe(2);
+  });
+
+  it('after 2 s of frames the cabinets point at the listener within 0.02 rad', () => {
+    const r = make();
+    for (let i = 0; i < 120; i++) updateRoom(r, L, 1 / 60);
+    const target = targetsFor(L);
+    yawsOf(r).forEach((y, i) => expect(Math.abs(y - target[i])).toBeLessThan(0.02));
+  });
+
+  it('eases (no snap) and both cabinets move toward the same listener', () => {
+    const r = make();
+    const start = yawsOf(r);
+    const target = targetsFor(L);
+    updateRoom(r, L, 1 / 60);
+    yawsOf(r).forEach((y, i) => {
+      if (Math.abs(target[i] - start[i]) > 0.05) {
+        expect(Math.abs(y - target[i])).toBeLessThan(Math.abs(start[i] - target[i]));
+        expect(Math.abs(y - target[i])).toBeGreaterThan(0);
+      }
+    });
+    // A listener on the other side swings both the same way round (left cabinet turns the opposite way to the right one when the listener crosses the centre line).
+    const r2 = make();
+    for (let i = 0; i < 120; i++) updateRoom(r2, { x: -1, z: 1, yaw: 0 }, 1 / 60);
+    const [l, rt] = yawsOf(r2);
+    expect(l).toBeGreaterThan(rt);
+  });
+
+  it('cabinets are the speaker children that carry the drivers and start aimed at the start pose', () => {
+    const r = make();
+    expect(r.cabinets.map((c) => c.name)).toEqual(['speaker-left-cabinet', 'speaker-right-cabinet']);
+    for (const c of r.cabinets) expect(r.group.getObjectById(c.id)).toBe(c);
   });
 });

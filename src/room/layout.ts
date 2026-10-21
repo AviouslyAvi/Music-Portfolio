@@ -1,7 +1,7 @@
 // Room layout, shared by the collision code and the geometry builder.
 // Coordinates: metres, x to the right, z toward the viewer (door end is +z,
 // the far wall is -z). Yaw 0 faces -z. Pure data, no three.js.
-import type { Box, PlayerState, Vec2 } from './movement';
+import { normalizeYaw, type Box, type PlayerState, type Vec2 } from './movement';
 
 export const ROOM_BOUNDS: Box = { minX: -2, maxX: 2, minZ: -3, maxZ: 3 };
 
@@ -51,4 +51,15 @@ export function nearestInteractable(p: Vec2): 'ipod' | 'computer' | null {
   const dc = Math.hypot(p.x - COMPUTER_POS.x, p.z - COMPUTER_POS.z);
   if (di <= dc) return di <= INTERACT_RADIUS ? 'ipod' : null;
   return dc <= INTERACT_RADIUS ? 'computer' : null;
+}
+
+/**
+ * Yaw that turns a cabinet facing +z so it points from `from` toward `to`,
+ * wrapped to (-PI, PI]. Returns 0 when the two coincide or an input is not finite.
+ */
+export function aimYaw(from: Vec2, to: Vec2): number {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  if (!Number.isFinite(dx) || !Number.isFinite(dz) || Math.hypot(dx, dz) < 1e-9) return 0;
+  return normalizeYaw(Math.atan2(dx, dz));
 }
