@@ -6,13 +6,17 @@ import { ROOM_COLORS } from './palette';
 import { DESK, KEYBOARD_STAND, SPEAKER_LEFT, SPEAKER_RIGHT, IPOD_POS, COMPUTER_POS } from './layout';
 import {
   Kit, makeMaterials, addShell, addSlatWall, addDesk, addKeyboardStand, addSpeaker, addWindow, addShelves, addPlant,
-  addGuitar, addClock, addPosters, addRug, addChair, addDeskLamp, type V3,
+  addGuitar, addClock, addPosters, addRug, addChair, addDeskLamp, addKeyboard88, addIpodCable, addHeadphones, type V3,
 } from './furniture';
 
 export type Room = {
   group: THREE.Group;
   ipod: THREE.Object3D;
   computer: THREE.Object3D;
+  /** The computer's glowing screen plane, for the portal. */
+  screen: THREE.Object3D;
+  /** Detached over-ear headphones; the sequence adds and animates them. */
+  headphones: THREE.Object3D;
   speakers: [THREE.Object3D, THREE.Object3D];
   triangleCount: number;
   dispose(): void;
@@ -21,6 +25,7 @@ export type Room = {
 export const ROOM_HEIGHT = 2.7;
 export const DESK_TOP = 0.76;
 const MAT_TOP = DESK_TOP + 0.005;
+export const MAT_TOP_Y = MAT_TOP;
 
 // The glow tier: everything else in the room stays below GLOW_MIN.
 const GLOW_MIN = 0.9;
@@ -56,6 +61,12 @@ function addIpod(k: Kit, g: THREE.Object3D): THREE.Object3D {
   const face: V3 = [Math.PI / 2, 0, 0];
   k.cyl(lean, wheel, 0.039, 0.039, 0.004, 24, [0, H * 0.27, D / 2], face);
   k.cyl(lean, body, 0.013, 0.013, 0.006, 16, [0, H * 0.27, D / 2 + 0.001], face);
+  // Dock port on the bottom edge, where the cable plugs in.
+  k.box(lean, stand, [0.035, 0, 0.004], [0.022, 0.004, 0.01]);
+  const port = new THREE.Object3D();
+  port.name = 'ipod-port';
+  port.position.set(0.035, -0.003, 0.004);
+  lean.add(port);
   return ipod;
 }
 
@@ -80,13 +91,18 @@ function addComputer(k: Kit, g: THREE.Object3D): THREE.Object3D {
   k.box(pc, shell, [0, 0.27, 0.01], [0.46, 0.38, 0.22]);
   k.box(pc, shell, [0, 0.26, -0.15], [0.34, 0.3, 0.14]);
   k.box(pc, bezel, [0, 0.285, 0.121], [0.38, 0.29, 0.004]);
-  k.plane(pc, screen, [0, 0.285, 0.1235], 0.34, 0.25);
+  const screenPlane = k.plane(pc, screen, [0, 0.285, 0.1235], 0.34, 0.25);
+  screenPlane.name = 'computer-screen';
   // A few darker lines on the screen read as a boot prompt from across the room.
   for (let i = 0; i < 4; i++) {
     const w = 0.16 - i * 0.02;
     k.plane(pc, glyph, [-0.14 + w / 2 + i * 0.012, 0.36 - i * 0.03, 0.1245], w, 0.008);
   }
   k.box(pc, bezel, [0.17, 0.11, 0.122], [0.03, 0.012, 0.003]);
+  const backPort = new THREE.Object3D();
+  backPort.name = 'computer-back-port';
+  backPort.position.set(0, 0.14, -0.22);
+  pc.add(backPort);
   // Keyboard on the mat in front.
   k.box(pc, keys, [0, 0.012, 0.25], [0.42, 0.024, 0.14], [0.06, 0, 0]);
   k.box(pc, bezel, [0, 0.026, 0.25], [0.39, 0.006, 0.11], [0.06, 0, 0]);
@@ -129,6 +145,14 @@ export function buildRoom(): Room {
   ];
   const ipod = addIpod(k, group);
   const computer = addComputer(k, group);
+  addKeyboard88(k, group, m, KEYBOARD_STAND);
+  group.updateMatrixWorld(true);
+  const at = (name: string): V3 => {
+    const p = group.getObjectByName(name)!.getWorldPosition(new THREE.Vector3());
+    return [p.x, p.y, p.z];
+  };
+  addIpodCable(k, group, m, at('ipod-port'), at('computer-back-port'), MAT_TOP + 0.004);
+  const headphones = addHeadphones(k, m);
 
   // Lighting: one warm lamp, a dim cool/warm hemisphere fill. No shadow maps.
   const bulb = addDeskLamp(k, group, m, 1.12, -2.75, MAT_TOP);
@@ -145,6 +169,8 @@ export function buildRoom(): Room {
     group,
     ipod,
     computer,
+    screen: computer.getObjectByName('computer-screen')!,
+    headphones,
     speakers,
     triangleCount: countTriangles(group),
     dispose() {

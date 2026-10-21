@@ -1,8 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect, afterEach } from 'vitest';
 import * as THREE from 'three';
-import { buildRoom } from './buildRoom';
-import { IPOD_POS, COMPUTER_POS, SOLIDS, RUG } from './layout';
+import { buildRoom, MAT_TOP_Y } from './buildRoom';
+import { KEYBOARD_STAND_TOP } from './furniture';
+import { IPOD_POS, COMPUTER_POS, SOLIDS, RUG, KEYBOARD_STAND } from './layout';
 
 type Built = ReturnType<typeof buildRoom>;
 let built: Built | null = null;
@@ -182,5 +183,92 @@ describe('buildRoom', () => {
     expect(geoDisposed).toBeGreaterThan(0);
     expect(matDisposed).toBe(materials(r.group).length);
     expect(() => r.dispose()).not.toThrow();
+  });
+
+  const worldBox = (o: THREE.Object3D) => {
+    o.updateWorldMatrix(true, true);
+    return new THREE.Box3().setFromObject(o);
+  };
+  const worldPos = (o: THREE.Object3D) => o.getWorldPosition(new THREE.Vector3());
+
+  it('the room has a keyboard-88 with 52 white and 36 black keys, in the real pattern', () => {
+    const r = make();
+    const kb = r.group.getObjectByName('keyboard-88')!;
+    expect(kb).toBeDefined();
+    expect(kb.userData.whiteKeys).toBe(52);
+    expect(kb.userData.blackKeys).toBe(36);
+    const white = kb.getObjectByName('white-keys') as THREE.Mesh;
+    const black = kb.getObjectByName('black-keys') as THREE.Mesh;
+    expect(white.geometry.attributes.position.count).toBe(52 * 24);
+    expect(black.geometry.attributes.position.count).toBe(36 * 24);
+    // The 88 keys start on A0: a black key follows every white key except B and E.
+    const after: number[] = kb.userData.blackAfterWhite;
+    const expected: number[] = [];
+    for (let i = 0; i < 52; i++) if (!'BE'.includes('ABCDEFG'[i % 7])) expected.push(i);
+    expect(after).toEqual(expected.filter((i) => i < 51));
+    expect(after).toHaveLength(36);
+    // Groups of two then three run across the board: gaps of 1 white key, then 2, ...
+    const gaps = after.slice(1).map((v, i) => v - after[i]);
+    expect(new Set(gaps)).toEqual(new Set([1, 2]));
+  });
+
+  it('the keyboard sits on its stand and clears every other solid', () => {
+    const r = make();
+    const kb = r.group.getObjectByName('keyboard-88')!;
+    const b = worldBox(kb);
+    expect(b.min.y).toBeGreaterThanOrEqual(KEYBOARD_STAND_TOP - 1e-3);
+    expect(b.min.y).toBeLessThan(KEYBOARD_STAND_TOP + 0.01);
+    expect(b.min.x).toBeGreaterThanOrEqual(KEYBOARD_STAND.minX - 1e-6);
+    expect(b.max.x).toBeLessThanOrEqual(KEYBOARD_STAND.maxX + 1e-6);
+    expect(b.min.z).toBeGreaterThanOrEqual(KEYBOARD_STAND.minZ - 1e-6);
+    expect(b.max.z).toBeLessThanOrEqual(KEYBOARD_STAND.maxZ + 1e-6);
+    for (const s of SOLIDS) {
+      if (s === KEYBOARD_STAND) continue;
+      const hit = b.min.x < s.maxX && b.max.x > s.minX && b.min.z < s.maxZ && b.max.z > s.minZ;
+      expect(hit).toBe(false);
+    }
+  });
+
+  it('keys are off-white, never 0xffffff, and the long axis runs along z with the keys facing the room', () => {
+    const r = make();
+    const kb = r.group.getObjectByName('keyboard-88')!;
+    const white = kb.getObjectByName('white-keys') as THREE.Mesh;
+    const c = (white.material as THREE.MeshStandardMaterial).color;
+    expect(c.getHex()).not.toBe(0xffffff);
+    expect(c.r).toBeGreaterThan(0.6);
+    const b = worldBox(kb);
+    expect(b.max.z - b.min.z).toBeGreaterThan(b.max.x - b.min.x);
+    // The front (key side) is +x: the white keys' centre sits toward +x of the case.
+    const wb = worldBox(white);
+    expect(wb.max.x).toBeGreaterThan(b.min.x + (b.max.x - b.min.x) * 0.9);
+  });
+
+  it('ipod-cable exists and both ends touch the iPod port and the computer back within 0.02 m', () => {
+    const r = make();
+    const cable = r.group.getObjectByName('ipod-cable')!;
+    expect(cable).toBeDefined();
+    r.group.updateMatrixWorld(true);
+    const [a, z] = cable.userData.ends as THREE.Vector3[];
+    const ipodPort = worldPos(r.group.getObjectByName('ipod-port')!);
+    const backPort = worldPos(r.group.getObjectByName('computer-back-port')!);
+    expect(a.distanceTo(ipodPort)).toBeLessThan(0.02);
+    expect(z.distanceTo(backPort)).toBeLessThan(0.02);
+    expect(worldBox(cable).min.y).toBeGreaterThanOrEqual(MAT_TOP_Y - 1e-3);
+  });
+
+  it('headphones is returned on Room, is named, and is not a child of room.group', () => {
+    const r = make();
+    expect(r.headphones.name).toBe('headphones');
+    expect(r.headphones.parent).toBeNull();
+    expect(r.group.getObjectById(r.headphones.id)).toBeUndefined();
+    expect(meshes(r.headphones).length).toBeGreaterThanOrEqual(5);
+    const mats = materials(r.headphones) as THREE.MeshStandardMaterial[];
+    for (const m of mats) expect(m.color.getHex()).not.toBe(0xffffff);
+  });
+
+  it('exposes the computer screen plane for the portal', () => {
+    const r = make();
+    expect(r.screen.name).toBe('computer-screen');
+    expect(r.computer.getObjectById(r.screen.id)).toBe(r.screen);
   });
 });

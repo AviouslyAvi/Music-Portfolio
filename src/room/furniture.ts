@@ -3,6 +3,7 @@
 // Coordinates follow layout.ts: metres, x right, z toward the viewer, y up,
 // floor at y = 0, far wall at z = -3.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ROOM_COLORS } from './palette';
 import { RUG, TWEETER_Y } from './layout';
 import type { Box } from './movement';
@@ -113,6 +114,12 @@ export function makeMaterials(k: Kit) {
     windowPane: k.mat(0x1e252c, { emissive: 0x2e3a46, emissiveIntensity: 0.3, roughness: 0.3 }),
     lampBulb: k.mat(C.lamp, { emissive: C.lamp, emissiveIntensity: 0.5 }),
     lampShade: k.mat(0x26221e, { side: THREE.DoubleSide }),
+    keyWhite: k.mat(0xe4dcc8, { roughness: 0.55 }),
+    keyBlack: k.mat(0x1c1714, { roughness: 0.5 }),
+    keyCase: k.mat(0x2a211b, { roughness: 0.7 }),
+    cable: k.mat(0x120f0d, { roughness: 0.6 }),
+    espresso: k.mat(0x3a2a20, { roughness: 0.75 }),
+    mustard: k.mat(0xc79a2e, { roughness: 0.6 }),
   };
 }
 export type Mats = ReturnType<typeof makeMaterials>;
@@ -344,4 +351,120 @@ export function addDeskLamp(k: Kit, g: THREE.Object3D, m: Mats, x: number, z: nu
   k.cyl(head, m.lampShade, 0.035, 0.1, 0.13, 14, [0, -0.04, 0]);
   k.cyl(head, m.lampBulb, 0.04, 0.04, 0.03, 10, [0, -0.08, 0]);
   return new THREE.Vector3(x + 0.17, top + 0.33, z + 0.14);
+}
+
+/** Merge boxes into one geometry (kept in the kit so dispose frees it). */
+function mergedBoxes(k: Kit, boxes: { pos: V3; size: V3 }[]): THREE.BufferGeometry {
+  const parts = boxes.map(({ pos, size }) => {
+    const g = new THREE.BoxGeometry(...size);
+    g.translate(...pos);
+    return g;
+  });
+  const merged = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  k.geometries.add(merged);
+  return merged;
+}
+
+export const KEYBOARD_KEY_W = 0.0236;
+const WHITE_KEYS = 52;
+const KEYBOARD_LEN = WHITE_KEYS * KEYBOARD_KEY_W;
+
+/**
+ * 88-key keyboard (A0 to C8) lying on its stand, long axis along z with the
+ * keys facing +x. White and black keys are one merged mesh each.
+ * userData.blackAfterWhite lists the white-key indices (0 = A0) a black key follows.
+ */
+export function addKeyboard88(k: Kit, g: THREE.Object3D, m: Mats, stand: Box): THREE.Group {
+  const kb = new THREE.Group();
+  kb.name = 'keyboard-88';
+  kb.position.set((stand.minX + stand.maxX) / 2, KEYBOARD_STAND_TOP, (stand.minZ + stand.maxZ) / 2);
+  // Local frame: x along the keys (treble at +x), front at +z. Turn so front is +x
+  // in the room and the bass end is nearest the viewer.
+  kb.rotation.y = HALF_PI;
+  g.add(kb);
+
+  const caseW = KEYBOARD_LEN + 0.04, depth = 0.3;
+  k.box(kb, m.keyCase, [0, 0.03, 0], [caseW, 0.06, depth]);
+  k.box(kb, m.keyCase, [0, 0.075, -0.1], [caseW, 0.03, 0.1]);
+  for (const sx of [-1, 1]) k.box(kb, m.keyCase, [sx * (caseW / 2 - 0.015), 0.07, 0.03], [0.03, 0.04, 0.24]);
+
+  const white: { pos: V3; size: V3 }[] = [];
+  const black: { pos: V3; size: V3 }[] = [];
+  const blackAfter: number[] = [];
+  for (let i = 0; i < WHITE_KEYS; i++) {
+    const x = -KEYBOARD_LEN / 2 + (i + 0.5) * KEYBOARD_KEY_W;
+    white.push({ pos: [x, 0.069, 0.05], size: [KEYBOARD_KEY_W - 0.0012, 0.018, 0.2] });
+    if (i < WHITE_KEYS - 1 && !'BE'.includes('ABCDEFG'[i % 7])) {
+      blackAfter.push(i);
+      black.push({ pos: [x + KEYBOARD_KEY_W / 2, 0.088, -0.0], size: [0.0135, 0.02, 0.12] });
+    }
+  }
+  const wm = new THREE.Mesh(mergedBoxes(k, white), m.keyWhite);
+  wm.name = 'white-keys';
+  const bm = new THREE.Mesh(mergedBoxes(k, black), m.keyBlack);
+  bm.name = 'black-keys';
+  kb.add(wm, bm);
+  kb.userData.whiteKeys = white.length;
+  kb.userData.blackKeys = black.length;
+  kb.userData.blackAfterWhite = blackAfter;
+  return kb;
+}
+
+/**
+ * Cable from the iPod's port to the back of the computer. It leaves to the right,
+ * lies on the desk mat behind the computer and rises to the back port.
+ * userData.ends holds the two end points (world, the room group sits at the origin).
+ */
+export function addIpodCable(k: Kit, g: THREE.Object3D, m: Mats, from: V3, to: V3, restY: number, lane = -2.945): THREE.Group {
+  const cable = new THREE.Group();
+  cable.name = 'ipod-cable';
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const curve = new THREE.CatmullRomCurve3(
+    [
+      v(...from),
+      v(from[0] + 0.05, restY + 0.012, from[2] + 0.04),
+      v(from[0] + 0.12, restY, from[2] - 0.03),
+      v(from[0] + 0.2, restY, lane),
+      v(to[0] - 0.3, restY, lane),
+      v(to[0] - 0.12, restY, lane),
+      v(to[0], to[1], to[2] + 0.002),
+      v(...to),
+    ],
+    false,
+    'centripetal',
+  );
+  // The spline can dip under the mat between the end points; resample and clamp it to rest on the desk.
+  const dense = curve.getPoints(80).map((p) => v(p.x, Math.max(p.y, restY), p.z));
+  const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(dense, false, 'centripetal'), 80, 0.0035, 5, false);
+  k.geometries.add(geo);
+  cable.add(new THREE.Mesh(geo, m.cable));
+  // Small plugs where it meets each device.
+  for (const p of [from, to]) k.box(cable, m.black, p, [0.012, 0.01, 0.012]);
+  cable.userData.ends = [v(...from), v(...to)];
+  g.add(cable);
+  return cable;
+}
+
+/**
+ * Over-ear headphones, detached: centred on the head, front toward -z, band over
+ * the top (+y). The sequence adds them to the scene and animates them.
+ */
+export function addHeadphones(k: Kit, m: Mats): THREE.Group {
+  const h = new THREE.Group();
+  h.name = 'headphones';
+  const R = 0.1;
+  const band = new THREE.TorusGeometry(R, 0.009, 6, 24, Math.PI);
+  k.geometries.add(band);
+  const bandMesh = new THREE.Mesh(band, m.espresso);
+  bandMesh.name = 'headphones-band';
+  h.add(bandMesh);
+  const side: V3 = [0, 0, HALF_PI];
+  for (const s of [-1, 1]) {
+    // Cup: mustard shell, espresso cushion facing the head.
+    k.cyl(h, m.mustard, 0.05, 0.05, 0.03, 18, [s * (R + 0.02), 0, 0], side);
+    k.cyl(h, m.espresso, 0.046, 0.05, 0.022, 18, [s * (R - 0.004), 0, 0], side);
+    k.box(h, m.espresso, [s * R, 0.03, 0], [0.012, 0.06, 0.012]);
+  }
+  return h;
 }
