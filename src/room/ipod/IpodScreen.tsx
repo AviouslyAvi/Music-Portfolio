@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { Track } from '@/content/tracks';
-import { IPOD } from '@/content/copy';
 import { IPOD_MENU, initialIpodState, ipodReducer, topScreen, type IpodAction, type IpodEvent, type IpodState } from './menu';
 import styles from './ipod.module.css';
 
@@ -19,13 +18,24 @@ const NEXT_D = 'M16 5h2v14h-2zM4 5l11 7L4 19z';
 const PLAY_D = 'M7 4l13 8-13 8z';
 const PAUSE_D = 'M6 4h4v16H6zM14 4h4v16h-4z';
 const VISIBLE_ROWS = 5;
+const SCRUB_KEY_SECONDS = 5;
+
+export function formatClock(seconds: number): string {
+  const s = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 
 type Props = {
   tracks: Track[];
+  /** Voice memos; they follow the songs in the player's list. */
+  memos?: Track[];
   currentIndex: number;
   playing: boolean;
   /** 0 to 1. */
   volume: number;
+  /** Seconds into the current song, and its length; 0 while nothing has started. */
+  position?: number;
+  duration?: number;
   onAction: (a: IpodAction) => void;
 };
 
@@ -38,11 +48,11 @@ function windowAround(cursor: number, size: number): number[] {
 // A classic click-wheel iPod. The four wheel buttons, the centre button and
 // the ring (drag around it, or use the mouse wheel) are all real controls; the
 // keyboard does the same through the arrow keys, Enter, Space and Escape.
-export function IpodScreen({ tracks, currentIndex, playing, volume, onAction }: Props) {
+export function IpodScreen({ tracks, memos = [], currentIndex, playing, volume, position = 0, duration = 0, onAction }: Props) {
   const [state, setState] = useState<IpodState>(initialIpodState);
   const stateRef = useRef(state);
-  const ctxRef = useRef({ trackCount: tracks.length, currentIndex });
-  ctxRef.current = { trackCount: tracks.length, currentIndex };
+  const ctxRef = useRef({ trackCount: tracks.length, memoCount: memos.length, currentIndex });
+  ctxRef.current = { trackCount: tracks.length, memoCount: memos.length, currentIndex };
   const actionRef = useRef(onAction);
   actionRef.current = onAction;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -67,7 +77,7 @@ export function IpodScreen({ tracks, currentIndex, playing, volume, onAction }: 
       ArrowRight: { type: 'NEXT' },
       Enter: { type: 'SELECT' },
       ' ': { type: 'PLAY_PAUSE' },
-      Escape: { type: 'BACK' },
+      Escape: { type: 'CLOSE' },
       Backspace: { type: 'BACK' },
     };
     let ev = map[e.key];
@@ -121,8 +131,43 @@ export function IpodScreen({ tracks, currentIndex, playing, volume, onAction }: 
     send({ type: 'SCROLL', delta: topScreen(stateRef.current).kind === 'now' ? -dir : dir });
   };
 
+  // Scrubbing: press or drag on the bar, or focus it and use the arrow keys.
+  // While dragging, the bar shows the finger and the song follows on release.
+  const [scrubFraction, setScrubFraction] = useState<number | null>(null);
+  const fractionAt = (e: PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return r.width > 0 ? Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) : 0;
+  };
+  const onScrubDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (duration <= 0) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // capture is optional
+    }
+    setScrubFraction(fractionAt(e));
+  };
+  const onScrubMove = (e: PointerEvent<HTMLDivElement>) => {
+    if (scrubFraction !== null) setScrubFraction(fractionAt(e));
+  };
+  const onScrubUp = (e: PointerEvent<HTMLDivElement>) => {
+    if (scrubFraction === null) return;
+    const f = fractionAt(e);
+    setScrubFraction(null);
+    actionRef.current({ type: 'seek', fraction: f });
+  };
+  const onScrubKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation(); // the arrows mean previous and next song everywhere else
+    if (duration <= 0) return;
+    const to = position + (e.key === 'ArrowRight' ? SCRUB_KEY_SECONDS : -SCRUB_KEY_SECONDS);
+    actionRef.current({ type: 'seek', fraction: Math.min(1, Math.max(0, to / duration)) });
+  };
+  const shownFraction = scrubFraction ?? (duration > 0 ? Math.min(1, position / duration) : 0);
+
   const top = topScreen(state);
-  const track = tracks[currentIndex];
+  const track = [...tracks, ...memos][currentIndex];
   const pct = Math.round(volume * 100);
 
   return (
@@ -141,7 +186,29 @@ export function IpodScreen({ tracks, currentIndex, playing, volume, onAction }: 
             <div className={styles.lcdTitle}>Now Playing</div>
             <div className={styles.songTitle}>{track ? track.title : 'No songs'}</div>
             <div className={styles.meta}>
-              {tracks.length ? `${currentIndex + 1} of ${tracks.length}` : ''} {playing ? 'Playing' : 'Press play'}
+              {tracks.length + memos.length ? `${currentIndex + 1} of ${tracks.length + memos.length}` : ''} {playing ? 'Playing' : 'Press play'}
+            </div>
+            <div className={styles.volRow}>
+              <span className={styles.clock}>{formatClock(shownFraction * duration)}</span>
+              <div
+                className={`${styles.vol} ${styles.scrub}`}
+                role="slider"
+                tabIndex={0}
+                aria-label="Song position"
+                aria-valuemin={0}
+                aria-valuemax={Math.floor(duration)}
+                aria-valuenow={Math.floor(shownFraction * duration)}
+                aria-valuetext={`${formatClock(shownFraction * duration)} of ${formatClock(duration)}`}
+                onPointerDown={onScrubDown}
+                onPointerMove={onScrubMove}
+                onPointerUp={onScrubUp}
+                onPointerCancel={() => setScrubFraction(null)}
+                onKeyDown={onScrubKey}
+                data-testid="ipod-scrub"
+              >
+                <div className={styles.volFill} style={{ width: `${shownFraction * 100}%` }} />
+              </div>
+              <span className={styles.clock}>{formatClock(duration)}</span>
             </div>
             <div className={styles.volRow}>
               <span className={styles.volLabel}>Volume</span>
@@ -184,11 +251,21 @@ export function IpodScreen({ tracks, currentIndex, playing, volume, onAction }: 
             </ul>
           </div>
         )}
-        {top.kind === 'page' && (
+        {top.kind === 'voice' && (
           <div>
-            <div className={styles.lcdTitle}>{IPOD.pages[top.id].title}</div>
-            <p className={styles.pageBody}>{IPOD.pages[top.id].body}</p>
-            <p className={styles.meta}>{IPOD.openLink}</p>
+            <div className={styles.lcdTitle}>Voice Memos</div>
+            {memos.length === 0 ? (
+              <p className={styles.pageBody}>No voice memos yet.</p>
+            ) : (
+              <ul className={styles.list} role="listbox" aria-label="Voice memos">
+                {windowAround(state.cursor, memos.length).map((i) => (
+                  <li key={memos[i].id} role="option" aria-selected={i === state.cursor} className={i === state.cursor ? styles.sel : undefined}>
+                    {tracks.length + i === currentIndex && playing ? '> ' : ''}
+                    {memos[i].title}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>
@@ -221,7 +298,7 @@ export function IpodScreen({ tracks, currentIndex, playing, volume, onAction }: 
         </button>
         <button type="button" className={styles.center} onClick={() => send({ type: 'SELECT' })} aria-label="Select" />
       </div>
-      <p className={styles.help}>Drag the wheel or press Up and Down to scroll and change volume. Esc goes back.</p>
+      <p className={styles.help}>Drag the wheel or press Up and Down to scroll and change volume. Drag the song bar to scrub. Esc puts the iPod down.</p>
     </div>
   );
 }

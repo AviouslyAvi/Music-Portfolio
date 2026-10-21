@@ -90,6 +90,21 @@
   background: #a1ab92;
 }
 
+.scrub {
+  cursor: pointer;
+  touch-action: none;
+  height: 12px;
+}
+.scrub:focus-visible {
+  outline: 2px solid #2b3024;
+  outline-offset: 2px;
+}
+.clock {
+  width: 2.6em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .volFill {
   height: 100%;
   background: #2b3024;
