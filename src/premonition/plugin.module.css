@@ -1,0 +1,107 @@
+/* PREMONITION, Console skin, Warm Analog dark: the tokens come from the plugin's own theme table. */
+.daw { background: #0d0806; min-height: 100%; display: flex; align-items: center; justify-content: center; }
+.fit { position: relative; width: 100%; overflow: hidden; }
+.stage {
+  position: absolute; left: 0; top: 0; width: 920px; height: 800px; transform-origin: 0 0;
+  --chrome: #140d0b; --chrome2: #241916; --panel: #1b1210; --strip: #241916; --foot: #150e0c; --well: #0f0908;
+  --text: #f0e6d8; --muted: #9a8474; --faint: #6b5b4e; --accent: #e0a01a; --hot: #e87a30; --fill: #f0e6d8; --on-fill: #1b1210;
+  --mono: var(--font-dm-mono), ui-monospace, Menlo, monospace; --grotesk: var(--font-space-grotesk), var(--font-sans), system-ui, sans-serif;
+  display: flex; flex-direction: column; padding: 10px 24px 14px; gap: 10px; color: var(--text); font-family: var(--grotesk);
+}
+
+.session { display: flex; align-items: center; gap: 14px; height: 28px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.sessionLabel { color: var(--faint); }
+.sessionSpacer { flex: 1; }
+.close, .source, .seg button, .renderBtn, .round {
+  font: inherit; color: inherit; cursor: pointer; border: 0; background: none;
+}
+.close { font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; padding: 6px 12px; border: 1px solid var(--faint); border-radius: 999px; color: var(--muted); }
+.close:hover { color: var(--text); border-color: var(--muted); }
+
+.plugin {
+  display: flex; flex-direction: column; background: var(--panel); border-radius: 22px; overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(240, 230, 216, 0.06), inset 0 -2px 0 rgba(0, 0, 0, 0.35), 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+.titleBar { display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 24px; background: var(--chrome); }
+.preset { background: var(--chrome2); border-radius: 999px; padding: 7px 22px; font-size: 12px; font-weight: 600; min-width: 130px; text-align: center; }
+.brand { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.logo { overflow: visible; }
+.logoRing { fill: none; stroke: var(--accent); stroke-width: 1.4; animation: echo 2.6s ease-in-out infinite; }
+.logoCore { fill: var(--accent); transform-origin: 10px 10px; animation: core 2.6s ease-in-out infinite; }
+.status { display: flex; align-items: center; gap: 8px; min-width: 130px; justify-content: flex-end; font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; color: var(--muted); }
+.statusDot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: ready 2.2s ease-out infinite; }
+.status[data-state='busy'] .statusDot { animation-duration: 0.8s; }
+
+.strip { display: flex; justify-content: space-between; align-items: flex-end; gap: 22px; padding: 14px 24px; background: var(--strip); }
+.field { display: flex; flex-direction: column; gap: 7px; }
+.fieldLabel, .waveHead, .knobLabel { font-family: var(--mono); font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted); }
+.sources, .seg { display: flex; gap: 4px; padding: 4px; background: var(--well); border-radius: 999px; box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5); }
+.source, .seg button {
+  padding: 7px 14px; border-radius: 999px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+  transition: background 0.15s, color 0.15s;
+}
+.source:hover:not(:disabled), .seg button:hover { color: var(--text); }
+.source[data-current='true'], .source[data-current='true']:hover:not(:disabled), .seg button[data-on='true'], .seg button[data-on='true']:hover { background: var(--fill); color: var(--on-fill); }
+.source { position: relative; }
+.source:disabled { cursor: default; opacity: 0.35; }
+.source[data-heard='true'] { opacity: 0.55; }
+.source[data-heard='true'][data-current='true'] { opacity: 0.8; }
+.heard { margin-left: 8px; font-size: 9px; letter-spacing: 0.18em; color: var(--accent); }
+.source[data-current='true'] .heard { color: var(--hot); }
+.foot { gap: 14px; }
+.footNote { flex: 1; text-align: right; font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.fault { margin: 0; padding: 40px 24px; font-family: var(--grotesk, system-ui, sans-serif); font-size: 14px; color: #f0e6d8; background: #1b1210; border-radius: 22px; text-align: center; }
+
+.view { position: relative; margin: 0 24px; border-radius: 15px; background: var(--chrome); overflow: hidden; box-shadow: inset 0 3px 10px rgba(0, 0, 0, 0.6); }
+.terrain { display: block; width: 100%; cursor: grab; touch-action: none; }
+.terrain:active { cursor: grabbing; }
+.viewTag { position: absolute; top: 12px; right: 14px; padding: 5px 12px; border-radius: 999px; background: var(--fill); color: var(--on-fill); font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; }
+
+.waves { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; padding: 18px 24px 8px; }
+.waveHead { display: flex; justify-content: space-between; margin-bottom: 7px; }
+.snap { color: var(--accent); }
+.waveWell { position: relative; height: 52px; border-radius: 8px; background: var(--well); box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.55); overflow: hidden; }
+.wave { display: block; }
+.handle { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--hot); }
+.in { left: 2px; }
+.out { right: 12%; }
+.waveFoot { margin-top: 6px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; color: var(--muted); }
+.playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--fill); }
+
+.knobs { display: flex; justify-content: space-between; padding: 12px 40px 8px; border-top: 1px solid rgba(240, 230, 216, 0.05); margin-top: 6px; }
+.knobCell { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 120px; }
+.knob { width: 84px; height: 84px; border-radius: 50%; cursor: ns-resize; touch-action: none; outline-offset: 2px; transition: transform 0.15s; }
+.knob[data-active='true'] { transform: scale(1.03); }
+.knob:focus-visible { outline: 2px solid var(--accent); }
+.knobFace { fill: var(--chrome2); }
+.knobTrack { fill: none; stroke: rgba(240, 230, 216, 0.1); stroke-width: 4; stroke-linecap: round; }
+.knobArc { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; }
+.knobTick { stroke: var(--fill); stroke-width: 2.4; stroke-linecap: round; }
+.knobValue { font-size: 12px; font-weight: 600; }
+
+.foot { display: flex; align-items: center; gap: 14px; padding: 16px 24px 18px; background: var(--foot); }
+.renderBtn {
+  width: 260px; height: 48px; border-radius: 999px; background: var(--hot); color: var(--panel); font-weight: 600; font-size: 13px; letter-spacing: 0.22em; text-transform: uppercase;
+  box-shadow: 0 6px 22px rgba(232, 122, 48, 0.35); transition: transform 0.12s, filter 0.12s;
+}
+.renderBtn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+.renderBtn:disabled, .round:disabled { opacity: 0.6; cursor: default; }
+.round { width: 44px; height: 44px; border-radius: 50%; background: var(--chrome2); font-size: 14px; }
+
+.under { display: flex; align-items: center; gap: 16px; min-height: 40px; }
+.tagline { font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); }
+.note { flex: 1; margin: 0; font-size: 13px; color: var(--muted); }
+
+@keyframes ready {
+  0% { box-shadow: 0 0 0 0 rgba(224, 160, 26, 0.55), 0 0 0 0 rgba(224, 160, 26, 0.3); }
+  55%, 100% { box-shadow: 0 0 0 5px rgba(224, 160, 26, 0), 0 0 0 12px rgba(224, 160, 26, 0); }
+}
+@keyframes echo { 0%, 100% { opacity: 1; } 42% { opacity: 0.18; } }
+@keyframes core { 0%, 100% { transform: scale(1); } 40% { transform: scale(1.22); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .logoRing, .logoCore, .statusDot { animation: none; }
+  .knob, .renderBtn { transition: none; }
+}
+
+.privacy { margin: 0; font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); }

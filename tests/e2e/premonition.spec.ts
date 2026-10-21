@@ -3,10 +3,9 @@ import { TRACKS } from '../../src/content/tracks';
 
 const STORE = 'https://premonition.avious.co';
 const TRACK_TITLES = TRACKS.map((t) => t.title);
-const SOUND_LABELS = ['Rising Pad', 'Noise Sweep', 'Tension Lift'];
 
 test.describe('/premonition', () => {
-  test('shows the product facts and the ready demo', async ({ page }) => {
+  test('shows the product facts and the plugin', async ({ page }) => {
     const res = await page.goto('/premonition');
     expect(res?.status()).toBe(200);
     const main = page.locator('main');
@@ -18,10 +17,7 @@ test.describe('/premonition', () => {
     await expect(main).toContainText('$24.99');
     await expect(main.getByRole('link', { name: /buy/i })).toHaveAttribute('href', STORE);
     await expect(main.getByRole('link', { name: /free demo/i })).toHaveAttribute('href', /premonition-demo/);
-    await expect(main.getByRole('status')).toHaveText('Ready. Choose a sound.');
-    for (const label of SOUND_LABELS) {
-      await expect(main.getByRole('button', { name: label })).toBeVisible();
-    }
+    await expect(main.getByRole('region', { name: /plugin/i })).toBeVisible();
   });
 
   test('makes no Windows or real-time claim', async ({ page }) => {

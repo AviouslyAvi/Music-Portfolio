@@ -92,3 +92,13 @@ describe('content guards', () => {
     expect(offenders(contentFiles, REALTIME)).toEqual([]);
   });
 });
+
+describe('premonition is listen only', () => {
+  const premonitionFiles = sourceFiles.filter((f) => relative(ROOT, f).split(sep).slice(0, 2).join('/') === 'src/premonition');
+  it('scans the plugin sources (guard is not vacuous)', () => {
+    expect(premonitionFiles.length).toBeGreaterThan(0);
+  });
+  it('never offers a download, a blob URL or a drag-out', () => {
+    expect(offenders(premonitionFiles, /\bdownload\b|createObjectURL|blob:|draggable|DownloadURL/i)).toEqual([]);
+  });
+});
