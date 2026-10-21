@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as L from './layout';
 import {
-  ROOM_BOUNDS, SOLIDS, START, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable,
+  GUITAR_ACOUSTIC, GUITAR_ELECTRIC, GUITAR_RADIUS, PIANO, ROOM_BOUNDS, SOLIDS, START, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable,
   DESK, SPEAKER_LEFT, SPEAKER_RIGHT, KEYBOARD_STAND, SPEAKERS, TWEETER_Y, SEAT_POSE, aimYaw,
 } from './layout';
 import type { Box } from './movement';
@@ -167,5 +167,37 @@ describe('layout', () => {
     expect(aimYaw({ x: 1, z: 2 }, { x: 1, z: 2 })).toBe(0);
     expect(Number.isFinite(aimYaw({ x: 1, z: 2 }, { x: 1 + 1e-300, z: 2 }))).toBe(true);
     expect(aimYaw({ x: NaN, z: 0 }, { x: 0, z: 0 })).toBe(0);
+  });
+});
+
+describe('wall guitars', () => {
+  it('can be reached from the lane in front of each, and the nearer one wins', () => {
+    expect(nearestInteractable({ x: -1.0, z: GUITAR_ACOUSTIC.z })).toBe('acoustic');
+    expect(nearestInteractable({ x: -1.0, z: GUITAR_ELECTRIC.z })).toBe('electric');
+    expect(nearestInteractable({ x: -1.0, z: -0.95 })).toBe('electric'); // 0.40 from one, 0.45 from the other
+    expect(nearestInteractable({ x: -1.0, z: -1.05 })).toBe('acoustic');
+  });
+
+  it('are out of reach from the middle of the room', () => {
+    expect(nearestInteractable({ x: 0.5, z: 1.0 })).toBeNull();
+    expect(Math.hypot(0.5 - GUITAR_ACOUSTIC.x, 1.0 - GUITAR_ACOUSTIC.z)).toBeGreaterThan(GUITAR_RADIUS);
+  });
+
+  it('hang on the left wall clear of the keyboard stand and the window', () => {
+    for (const g of [GUITAR_ACOUSTIC, GUITAR_ELECTRIC]) {
+      expect(g.x).toBeLessThan(-1.9);
+      expect(g.z).toBeGreaterThan(-1.7 + 0.2); // beyond the stand's front edge
+      expect(g.z).toBeLessThan(0.2 - 0.2); // before the window
+    }
+  });
+});
+
+describe('keyboard', () => {
+  it('can be played from the lane beside it', () => {
+    expect(nearestInteractable({ x: -1.3, z: PIANO.z })).toBe('piano');
+  });
+  it('sits in the middle of its stand', () => {
+    expect(PIANO.x).toBeCloseTo(-1.825);
+    expect(PIANO.z).toBeCloseTo(-2.35);
   });
 });

@@ -4,6 +4,7 @@
 import { normalizeYaw, type Box, type PlayerState, type Vec2 } from './movement';
 
 export const ROOM_BOUNDS: Box = { minX: -2, maxX: 2, minZ: -3, maxZ: 3 };
+export const ROOM_HEIGHT = 2.7;
 
 export type Vec3 = { x: number; y: number; z: number };
 
@@ -35,22 +36,53 @@ export const SOLIDS: Box[] = [DESK, SPEAKER_LEFT, SPEAKER_RIGHT, KEYBOARD_STAND]
 export const START: PlayerState = { pos: { x: 0, z: 2.2 }, yaw: 0 };
 
 // Points on the desk surface.
-export type Interactable = 'ipod' | 'computer';
+export type Interactable = 'ipod' | 'computer' | 'acoustic' | 'electric' | 'piano';
 
 export const IPOD_POS: Vec2 = { x: -0.4, z: -2.7 };
-export const COMPUTER_POS: Vec2 = { x: 0.3, z: -2.7 };
+export const COMPUTER_POS: Vec2 = { x: 0, z: -2.7 }; // the middle of the desk
 
 export const INTERACT_RADIUS = 1.4;
 
 /** Camera when seated at the computer (yaw 0 faces the desk). */
 export const SEAT_POSE = { x: COMPUTER_POS.x, z: -1.85, yaw: 0, pitch: -0.5 };
 
-/** Closest interactable within INTERACT_RADIUS. An exact tie goes to 'ipod'. */
-export function nearestInteractable(p: Vec2): 'ipod' | 'computer' | null {
-  const di = Math.hypot(p.x - IPOD_POS.x, p.z - IPOD_POS.z);
-  const dc = Math.hypot(p.x - COMPUTER_POS.x, p.z - COMPUTER_POS.z);
-  if (di <= dc) return di <= INTERACT_RADIUS ? 'ipod' : null;
-  return dc <= INTERACT_RADIUS ? 'computer' : null;
+// The two guitars hang on the left wall, 0.85 m apart. Where they hang (and where
+// their sound comes from) is read from here by the geometry and the audio.
+export const GUITAR_ACOUSTIC: Vec3 = { x: -1.95, y: 1.3, z: -1.4 };
+export const GUITAR_ELECTRIC: Vec3 = { x: -1.94, y: 1.35, z: -0.55 };
+/** The keyboard on its stand: the middle of its footprint, at key height. Its sound comes from here. */
+export const PIANO: Vec3 = { x: (KEYBOARD_STAND.minX + KEYBOARD_STAND.maxX) / 2, y: 0.95, z: (KEYBOARD_STAND.minZ + KEYBOARD_STAND.maxZ) / 2 };
+/** How close a visitor must stand to strum a wall guitar or play the keyboard. */
+export const GUITAR_RADIUS = 1.3;
+
+/** Where an interactable is on the floor plan. */
+export function interactablePos(t: Interactable): Vec2 {
+  if (t === 'ipod') return IPOD_POS;
+  if (t === 'computer') return COMPUTER_POS;
+  if (t === 'piano') return PIANO;
+  return t === 'acoustic' ? GUITAR_ACOUSTIC : GUITAR_ELECTRIC;
+}
+
+/** Closest interactable within reach. An exact tie goes to the earlier of ipod, computer, acoustic, electric, piano. */
+export function nearestInteractable(p: Vec2): Interactable | null {
+  const reach: Array<[Interactable, number]> = [
+    ['ipod', INTERACT_RADIUS],
+    ['computer', INTERACT_RADIUS],
+    ['acoustic', GUITAR_RADIUS],
+    ['electric', GUITAR_RADIUS],
+    ['piano', GUITAR_RADIUS],
+  ];
+  let best: Interactable | null = null;
+  let bestD = Infinity;
+  for (const [t, r] of reach) {
+    const q = interactablePos(t);
+    const d = Math.hypot(p.x - q.x, p.z - q.z);
+    if (d <= r && d < bestD) {
+      best = t;
+      bestD = d;
+    }
+  }
+  return best;
 }
 
 /**

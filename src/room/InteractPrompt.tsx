@@ -4,7 +4,15 @@ import type { Ref } from 'react';
 import { ROOM } from '@/content/copy';
 import styles from './room.module.css';
 
-export type PromptTarget = 'ipod' | 'computer';
+export type PromptTarget = 'ipod' | 'computer' | 'acoustic' | 'electric' | 'piano';
+
+const LABELS: Record<PromptTarget, string> = {
+  ipod: ROOM.promptIpodLabel,
+  computer: ROOM.promptComputerLabel,
+  acoustic: ROOM.promptAcousticLabel,
+  electric: ROOM.promptElectricLabel,
+  piano: ROOM.promptPianoLabel,
+};
 
 // The floating "Press E to interact" label that sits next to the iPod or the
 // computer when the visitor is close. RoomExperience moves it each frame (through
@@ -27,7 +35,7 @@ export function InteractPrompt({
       className={styles.prompt}
       data-visible="false"
       data-prompt={target}
-      aria-label={target === 'ipod' ? ROOM.promptIpodLabel : ROOM.promptComputerLabel}
+      aria-label={LABELS[target]}
       onClick={onActivate}
     >
       <span className={styles.promptKey} aria-hidden="true">

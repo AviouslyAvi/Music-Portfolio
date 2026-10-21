@@ -12,10 +12,12 @@ import { LINKS } from '@/content/site';
 import { buildRoom, updateRoom, type Room } from './buildRoom';
 import { stepPlayer, normalizeYaw, type PlayerState } from './movement';
 import {
-  SOLIDS, ROOM_BOUNDS, START, SEAT_POSE, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable, type Interactable,
+  SOLIDS, ROOM_BOUNDS, START, SEAT_POSE, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, GUITAR_RADIUS, interactablePos, nearestInteractable, type Interactable,
 } from './layout';
 import { isAudioUnavailable, DEFAULT_VOLUME, type TrackPlayer } from './audioEngine';
+import type { GuitarSynth } from './guitarSynth';
 import { TRACKS } from '@/content/tracks';
+import { VOICE_MEMOS } from '@/content/voiceMemos';
 import { Hud } from './Hud';
 import { InteractPrompt } from './InteractPrompt';
 import { IpodScreen } from './ipod/IpodScreen';
@@ -31,7 +33,7 @@ import styles from './room.module.css';
 // Loaded only when the visitor sits down: the plugin UI and its engine stay out of the room chunk.
 const PluginScreen = lazy(() => import('@/premonition/PluginScreen').then((m) => ({ default: m.PluginScreen })));
 
-export type RoomAudio = { ctx: AudioContext; player: TrackPlayer };
+export type RoomAudio = { ctx: AudioContext; player: TrackPlayer; guitar?: GuitarSynth };
 
 const EYE_HEIGHT = 1.6;
 const FOV = 70;
@@ -84,14 +86,14 @@ function prefersReducedMotion(): boolean {
 function interactableOf(o: THREE.Object3D | null): Interactable | null {
   for (let n = o; n; n = n.parent) {
     const t = n.userData?.interactive;
-    if (t === 'ipod' || t === 'computer') return t;
+    if (t === 'ipod' || t === 'computer' || t === 'acoustic' || t === 'electric' || t === 'piano') return t;
   }
   return null;
 }
 
 function inClickRange(p: PlayerState['pos'], t: Interactable): boolean {
-  const target = t === 'ipod' ? IPOD_POS : COMPUTER_POS;
-  return Math.hypot(p.x - target.x, p.z - target.z) <= CLICK_RANGE;
+  const target = interactablePos(t);
+  return Math.hypot(p.x - target.x, p.z - target.z) <= (t === 'acoustic' || t === 'electric' || t === 'piano' ? GUITAR_RADIUS * 1.5 : CLICK_RANGE);
 }
 
 const NO_FAILURES: string[] = [];
@@ -129,11 +131,15 @@ export default function RoomExperience({
 
   const ipodPromptRef = useRef<HTMLButtonElement>(null);
   const computerPromptRef = useRef<HTMLButtonElement>(null);
+  const acousticPromptRef = useRef<HTMLButtonElement>(null);
+  const electricPromptRef = useRef<HTMLButtonElement>(null);
+  const pianoPromptRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [trackIndex, setTrackIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(DEFAULT_VOLUME);
+  const [clock, setClock] = useState({ position: 0, duration: 0 });
   const [ipodOpen, setIpodOpen] = useState(false);
   const wasOpen = useRef(false);
   const wasIpodOpen = useRef(false);
@@ -204,6 +210,7 @@ export default function RoomExperience({
       const r = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
       renderer = r;
       r.toneMapping = THREE.ACESFilmicToneMapping;
+      r.toneMappingExposure = 1.25;
       r.outputColorSpace = THREE.SRGBColorSpace;
       r.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO));
       r.setSize(window.innerWidth, window.innerHeight, false);
@@ -218,7 +225,7 @@ export default function RoomExperience({
       const built = buildRoom();
       room = built;
       const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x1a1c1f);
+      scene.background = new THREE.Color(0x2a2522);
       scene.add(built.group);
 
       const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.05, 30);
@@ -248,6 +255,7 @@ export default function RoomExperience({
       let lastTitle = '';
       let lastPlaying = false;
       let lastVolume = DEFAULT_VOLUME;
+      let lastClock = { position: 0, duration: 0 };
       // Where each floating prompt hangs: just above the object, in world space.
       built.group.updateMatrixWorld(true);
       const anchorOf = (o: THREE.Object3D) => {
@@ -257,12 +265,23 @@ export default function RoomExperience({
       };
       const ipodAnchor = anchorOf(built.ipod);
       const computerAnchor = anchorOf(built.computer);
+      const acousticAnchor = anchorOf(built.acoustic);
+      const electricAnchor = anchorOf(built.electric);
+      const pianoAnchor = anchorOf(built.piano);
+      // A strummed guitar shivers on its hook for a moment.
+      const wobble: Record<'acoustic' | 'electric', number> = { acoustic: -1, electric: -1 };
       const projected = new THREE.Vector3();
       let lastAttrs = '';
 
       // Hidden tab or an overlay: hold the audio. A visitor's own pause is never undone by release.
-      const suspendAudio = () => audioRef.current?.player.hold();
-      const resumeAudio = () => audioRef.current?.player.release();
+      const suspendAudio = () => {
+        audioRef.current?.player.hold();
+        audioRef.current?.guitar?.hold();
+      };
+      const resumeAudio = () => {
+        audioRef.current?.player.release();
+        audioRef.current?.guitar?.release();
+      };
 
       const exitLock = () => {
         try {
@@ -330,6 +349,12 @@ export default function RoomExperience({
       };
       const interact = (t: Interactable) => {
         if (mode !== 'walk') return;
+        if (t === 'acoustic' || t === 'electric' || t === 'piano') {
+          // Strumming or playing happens where the visitor stands; the camera does not move.
+          audioRef.current?.guitar?.strum(t);
+          if (t !== 'piano') wobble[t] = performance.now();
+          return;
+        }
         returnPose = { x: player.pos.x, z: player.pos.z, yaw: player.yaw, pitch };
         if (t === 'ipod') startEase(IPOD_POSE, 'ipod');
         else beginSeat();
@@ -384,7 +409,7 @@ export default function RoomExperience({
           ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
         }
         raycaster.setFromCamera(ndc, camera);
-        const hit = raycaster.intersectObjects([built.ipod, built.computer], true)[0];
+        const hit = raycaster.intersectObjects([built.ipod, built.computer, built.acoustic, built.electric, built.piano], true)[0];
         return hit ? interactableOf(hit.object) : null;
       };
       const look = (dx: number, dy: number) => {
@@ -543,6 +568,14 @@ export default function RoomExperience({
           lastNearby = near;
           placePrompt(ipodPromptRef.current, ipodAnchor, near === 'ipod');
           placePrompt(computerPromptRef.current, computerAnchor, near === 'computer');
+          placePrompt(acousticPromptRef.current, acousticAnchor, near === 'acoustic');
+          placePrompt(electricPromptRef.current, electricAnchor, near === 'electric');
+          placePrompt(pianoPromptRef.current, pianoAnchor, near === 'piano');
+          for (const [kind, obj] of [['acoustic', built.acoustic], ['electric', built.electric]] as const) {
+            const base = (obj.userData.baseRotZ as number) ?? 0;
+            const age = wobble[kind] < 0 ? Infinity : (now - wobble[kind]) / 1000;
+            obj.rotation.z = age < 1.5 ? base + 0.025 * Math.exp(-4 * age) * Math.sin(34 * age) : base;
+          }
           const a = audioRef.current;
           const tt = a ? a.player.title : '';
           if (tt !== lastTitle) {
@@ -560,6 +593,12 @@ export default function RoomExperience({
             lastVolume = vol;
             setVolume(vol);
           }
+          const pos = a ? Math.floor(a.player.position) || 0 : 0;
+          const dur = a ? Math.floor(a.player.duration) || 0 : 0;
+          if (pos !== lastClock.position || dur !== lastClock.duration) {
+            lastClock = { position: pos, duration: dur };
+            setClock(lastClock);
+          }
           const x = player.pos.x.toFixed(3);
           const z = player.pos.z.toFixed(3);
           const y = player.yaw.toFixed(3);
@@ -570,6 +609,7 @@ export default function RoomExperience({
             wrap.dataset.playerZ = z;
             wrap.dataset.playerYaw = y;
             a?.player.setListenerPose(player.pos.x, player.pos.z, player.yaw);
+            a?.guitar?.setListenerPose(player.pos.x, player.pos.z, player.yaw);
           }
         } catch {
           // A broken frame hands back to the normal site once.
@@ -673,18 +713,11 @@ export default function RoomExperience({
         case 'step':
           void player?.step(a.dir).catch(() => {});
           break;
+        case 'seek':
+          if (player) player.seek(a.fraction * player.duration);
+          break;
         case 'volume':
           if (player) player.setVolume(Math.round((player.volume + a.delta * VOLUME_STEP) * 100) / 100);
-          break;
-        case 'computer':
-          apiRef.current?.ipodToComputer();
-          break;
-        case 'leave':
-          leaveRef0.current();
-          break;
-        case 'link':
-          leaveRef0.current();
-          router.push(a.href);
           break;
         case 'close':
           apiRef.current?.closeIpod();
@@ -712,6 +745,9 @@ export default function RoomExperience({
         <div ref={wrapRef} className={styles.canvasWrap} data-testid="room-canvas" role="img" aria-label={ROOM.canvasLabel} />
         <InteractPrompt ref={ipodPromptRef} target="ipod" onActivate={() => onInteract('ipod')} />
         <InteractPrompt ref={computerPromptRef} target="computer" onActivate={() => onInteract('computer')} />
+        <InteractPrompt ref={acousticPromptRef} target="acoustic" onActivate={() => onInteract('acoustic')} />
+        <InteractPrompt ref={electricPromptRef} target="electric" onActivate={() => onInteract('electric')} />
+        <InteractPrompt ref={pianoPromptRef} target="piano" onActivate={() => onInteract('piano')} />
       </div>
       <Hud
         trackTitle={playing ? title : ''}
@@ -720,7 +756,7 @@ export default function RoomExperience({
       />
       {ipodOpen && (
         <div className={styles.ipodOverlay} role="dialog" aria-modal="true" aria-label={ROOM.ipodLabel}>
-          <IpodScreen tracks={TRACKS} currentIndex={trackIndex} playing={playing} volume={volume} onAction={onIpodAction} />
+          <IpodScreen tracks={TRACKS} currentIndex={trackIndex} playing={playing} memos={VOICE_MEMOS} volume={volume} position={clock.position} duration={clock.duration} onAction={onIpodAction} />
         </div>
       )}
       <div

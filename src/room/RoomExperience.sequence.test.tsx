@@ -39,6 +39,9 @@ vi.mock('./buildRoom', async (orig) => {
       computer: new THREE.Group(),
       screen: new THREE.Group(),
       headphones: new THREE.Group(),
+      acoustic: new THREE.Group(),
+      electric: new THREE.Group(),
+      piano: new THREE.Group(),
       dispose() {},
     }),
   };

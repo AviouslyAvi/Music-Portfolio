@@ -89,7 +89,7 @@
 
 /* Film grain and vignette over the room. Never takes pointer events. */
 .grain {
-  position: fixed; inset: 0; z-index: 150; pointer-events: none;
+  position: fixed; inset: 0; z-index: 105; pointer-events: none; /* under the iPod and plugin overlays (110), over the room */
   background: radial-gradient(ellipse at 50% 48%, transparent 55%, rgba(26, 12, 6, 0.38) 100%);
 }
 .grainCanvas {

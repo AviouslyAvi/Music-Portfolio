@@ -91,7 +91,7 @@ describe('buildRoom', () => {
     r.group.updateMatrixWorld(true);
     const target = new THREE.Vector3();
     new THREE.Box3().setFromObject(r.computer).getCenter(target);
-    const origin = new THREE.Vector3(COMPUTER_POS.x, target.y, -1.2);
+    const origin = new THREE.Vector3(COMPUTER_POS.x + 0.6, target.y, -1.5); // off to the side: the chair sits in front of the desk
     const ray = new THREE.Raycaster(origin, target.clone().sub(origin).normalize());
     const hit = ray.intersectObject(r.group, true)[0];
     expect(hit).toBeDefined();

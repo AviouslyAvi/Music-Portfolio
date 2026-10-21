@@ -225,8 +225,8 @@ describe('RoomGate', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     renderPage();
     fireEvent.click(enter());
-    await waitFor(() => expect(h.close).toHaveBeenCalled());
-    expectNormalHome();
+    await waitFor(() => expectNormalHome());
+    expect(h.close).toHaveBeenCalled();
     err.mockRestore();
   });
 
@@ -236,8 +236,8 @@ describe('RoomGate', () => {
     });
     renderPage();
     fireEvent.click(enter());
-    await waitFor(() => expect(h.close).toHaveBeenCalled());
-    expectNormalHome();
+    await waitFor(() => expectNormalHome());
+    expect(h.close).toHaveBeenCalled();
   });
 
   it('does not offer the room again in this page view after a failure', async () => {

@@ -5,6 +5,9 @@ import { Component, useCallback, useEffect, useRef, useState, type ReactNode } f
 import { detectEnv, shouldOfferRoom } from '@/lib/capability';
 import { track } from '@/lib/analytics';
 import { TRACKS } from '@/content/tracks';
+import { VOICE_MEMOS } from '@/content/voiceMemos';
+import { GuitarSynth } from './guitarSynth';
+import { GUITAR_ACOUSTIC, GUITAR_ELECTRIC, PIANO } from './layout';
 import { ROOM } from '@/content/copy';
 import { TrackPlayer } from './audioEngine';
 import type { RoomAudio } from './RoomExperience';
@@ -82,9 +85,18 @@ function startAudio(onError: (trackId: string) => void): RoomAudio | null {
     const AC = w.AudioContext ?? w.webkitAudioContext;
     if (!AC) return null;
     const ctx = new AC();
-    const player = new TrackPlayer(ctx, TRACKS, ctx.destination);
+    const player = new TrackPlayer(ctx, [...TRACKS, ...VOICE_MEMOS], ctx.destination);
     player.onError((e) => onError(e.trackId));
-    return { ctx, player };
+    // The guitars make their own context in the same click, so a strum is allowed to sound.
+    let guitar: GuitarSynth | undefined;
+    try {
+      guitar = new GuitarSynth({ electric: GUITAR_ELECTRIC, acoustic: GUITAR_ACOUSTIC, piano: PIANO });
+      guitar.prepare();
+    } catch {
+      guitar?.dispose();
+      guitar = undefined; // the music still works without the guitars
+    }
+    return { ctx, player, guitar };
   } catch {
     return null;
   }
@@ -94,6 +106,11 @@ function stopAudio(audio: RoomAudio | null): void {
   if (!audio) return;
   try {
     audio.player.dispose();
+  } catch {
+    // ignore
+  }
+  try {
+    audio.guitar?.dispose();
   } catch {
     // ignore
   }
