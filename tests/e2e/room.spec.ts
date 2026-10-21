@@ -3,7 +3,6 @@ import { KEYBOARD_STAND, DESK, IPOD_POS, COMPUTER_POS } from '../../src/room/lay
 import { PLAYER_RADIUS } from '../../src/room/movement';
 
 const ENTER_DIALOG = { name: 'Enter the room' };
-const DEMO_DIALOG = { name: 'Premonition demo' };
 
 /** Records every JavaScript response that ships the three.js renderer. */
 function watchThree(page: Page) {
@@ -237,35 +236,87 @@ test.describe('in the room', () => {
     expect(await page.evaluate(() => sessionStorage.getItem('room:left'))).toBe('1');
   }
 
-  test('E at the computer opens the demo; Continue to site opens the full site', async ({ page }) => {
+  // The visit. The room dialog carries data-stage (walk, seating, headphones, boot, plugin, portal, leaving).
+  const ROOM_DIALOG = { name: 'AVIOUS studio room' };
+  const stageIs = (page: Page, stage: string) =>
+    expect(page.getByRole('dialog', ROOM_DIALOG)).toHaveAttribute('data-stage', stage, { timeout: 20_000 });
+  // The plugin's three sound buttons. Part B's face marks them with data-played; adjust here if it changes.
+  const soundButtons = (page: Page) => page.locator('[data-played]');
+
+  async function sitAtComputer(page: Page) {
     await enterRoom(page);
     await walkToDesk(page, 'computer');
     await page.keyboard.press('e');
-    const demo = page.getByRole('dialog', DEMO_DIALOG);
-    await expect(demo).toBeVisible({ timeout: 5_000 });
-    await demo.getByRole('button', { name: 'Rising Pad' }).click({ timeout: 10_000 });
-    await demo.getByRole('button', { name: /continue to site/i }).click({ timeout: 15_000 });
-    await expectSiteOpen(page);
+  }
+
+  async function playAllThree(page: Page) {
+    await stageIs(page, 'plugin');
+    const buttons = soundButtons(page);
+    await expect(buttons).toHaveCount(3);
+    for (let i = 0; i < 3; i++) await buttons.nth(i).click();
+  }
+
+  test('E at the computer lowers the headphones, silences the room and shows the terminal', async ({ page }) => {
+    await sitAtComputer(page);
+    await stageIs(page, 'seating');
+    await stageIs(page, 'headphones');
+    await stageIs(page, 'boot');
+    await expect(page.getByTestId('terminal')).toBeVisible();
+    await expect(page.getByTestId('terminal')).toContainText(/loading engine/i);
   });
 
-  test('Skip in the demo opens the full site', async ({ page }) => {
-    await enterRoom(page);
-    const demo = page.getByRole('dialog', DEMO_DIALOG);
-    await walkToDesk(page, 'computer');
-    await page.keyboard.press('e');
-    await expect(demo).toBeVisible();
-    await demo.getByRole('button', { name: 'Skip' }).click();
-    await expectSiteOpen(page);
-  });
-
-  test('Escape in the demo skips it and opens the full site', async ({ page }) => {
-    await enterRoom(page);
-    const demo = page.getByRole('dialog', DEMO_DIALOG);
-    await walkToDesk(page, 'computer');
-    await page.keyboard.press('e');
-    await expect(demo).toBeVisible();
+  test('Escape stands up and the room music resumes', async ({ page }) => {
+    await sitAtComputer(page);
+    await stageIs(page, 'boot');
     await page.keyboard.press('Escape');
+    await stageIs(page, 'walk');
+    await expect(page.getByTestId('terminal')).toHaveCount(0);
+    await expect(canvas(page)).toBeVisible();
+    // Walking works again once the stand-up ease ends.
+    await expect(canvas(page)).toHaveAttribute('data-player-z', /\d/);
+    await holdKey(page, 's', 600);
+  });
+
+  test('playing all three sounds shows the portal and requests the configured Premonition URL', async ({ page }) => {
+    const requested: string[] = [];
+    await page.route(/premonition\.avious\.co/, (route) => {
+      requested.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Premonition</title>' });
+    });
+    await sitAtComputer(page);
+    await playAllThree(page);
+    await stageIs(page, 'portal');
+    await expect(page.getByTestId('portal')).toBeVisible();
+    await page.waitForURL(/premonition\.avious\.co/, { timeout: 15_000 });
+    expect(requested.length).toBeGreaterThan(0);
+    expect(await page.evaluate(() => sessionStorage.getItem('room:left'))).toBe('1');
+  });
+
+  test('Skip to site works mid-portal and never reaches the Premonition URL', async ({ page }) => {
+    const requested: string[] = [];
+    await page.route(/premonition\.avious\.co/, (route) => {
+      requested.push(route.request().url());
+      return route.abort();
+    });
+    await sitAtComputer(page);
+    await playAllThree(page);
+    await stageIs(page, 'portal');
+    await page.getByRole('button', { name: 'Skip to site' }).click();
     await expectSiteOpen(page);
+    await page.waitForTimeout(3500);
+    expect(requested).toEqual([]);
+  });
+
+  test('a played sound is dimmed and still clickable', async ({ page }) => {
+    await sitAtComputer(page);
+    await stageIs(page, 'plugin');
+    const first = soundButtons(page).first();
+    await expect(first).toHaveAttribute('data-played', 'false');
+    await first.click();
+    await expect(first).toHaveAttribute('data-played', 'true', { timeout: 15_000 });
+    await expect(first).toBeEnabled();
+    await first.click();
+    await stageIs(page, 'plugin');
   });
 
   test('Skip to site removes the canvas and sets room:left', async ({ page }) => {
