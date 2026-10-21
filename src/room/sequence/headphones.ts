@@ -3,7 +3,9 @@ import type * as THREE from 'three';
 export const HEADPHONE_DROP_MS = 800;
 
 // Camera-space metres: the band rests across the top of the view, just ahead of the lens.
-const REST_Y = 0.12;
+const REST_Y = 0;
+// The model is life size (a 0.1 m band); close to the lens it is scaled up so the cups frame the screen edges.
+const SCALE = 3;
 const START_Y = 0.7;
 const START_PITCH = 0.9;
 const OFFSET_Z = -0.35;
@@ -22,6 +24,7 @@ export function attachHeadphones(camera: THREE.Camera, obj: THREE.Object3D): () 
   const start = headphonePose(0);
   obj.position.set(0, start.y, OFFSET_Z);
   obj.rotation.set(start.pitch, 0, 0);
+  obj.scale.setScalar(SCALE);
   camera.add(obj);
   return () => {
     if (obj.parent === camera) camera.remove(obj);

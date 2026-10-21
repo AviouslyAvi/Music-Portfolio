@@ -28,23 +28,32 @@ vi.mock('three', async (orig) => {
   }
   return { ...actual, WebGLRenderer: FakeRenderer };
 });
-vi.mock('./buildRoom', () => ({
-  buildRoom: () => ({ group: new THREE.Group(), ipod: new THREE.Group(), computer: new THREE.Group(), dispose() {} }),
-}));
-vi.mock('./sequence/stubs', async (orig) => {
-  const actual = await orig<typeof import('./sequence/stubs')>();
+vi.mock('./buildRoom', async (orig) => {
+  const actual = await orig<typeof import('./buildRoom')>();
   return {
     ...actual,
-    PluginScreen: (props: NonNullable<typeof h.plugin>) => {
-      h.plugin = props;
-      h.pluginMounts++;
-      return <div data-testid="plugin-screen" />;
-    },
+    updateRoom: vi.fn(),
+    buildRoom: () => ({
+      group: new THREE.Group(),
+      ipod: new THREE.Group(),
+      computer: new THREE.Group(),
+      screen: new THREE.Group(),
+      headphones: new THREE.Group(),
+      dispose() {},
+    }),
   };
 });
+vi.mock('@/premonition/PluginScreen', () => ({
+  PluginScreen: (props: NonNullable<typeof h.plugin>) => {
+    h.plugin = props;
+    h.pluginMounts++;
+    return <div data-testid="plugin-screen" />;
+  },
+}));
 
 import RoomExperience from './RoomExperience';
 import { LINKS } from '@/content/site';
+import { SOURCES } from '@/premonition/sources';
 
 function fakeAudio() {
   return {
@@ -99,7 +108,7 @@ const toPlugin = () => {
   frames(3000); // terminal minimum
 };
 const playAll = () => {
-  for (const s of h.plugin!.sources) act(() => h.plugin!.onSoundPlayed(s.id));
+  for (const s of SOURCES) act(() => h.plugin!.onSoundPlayed(s.id));
 };
 
 beforeEach(() => {
@@ -126,7 +135,7 @@ beforeEach(() => {
   sessionStorage.clear();
   const noop = () => {};
   const ctx = new Proxy({} as Record<string, unknown>, {
-    get: (t, k: string) => (k in t ? t[k] : k.startsWith('create') ? () => ({ addColorStop: noop }) : noop),
+    get: (t, k: string) => (k in t ? t[k] : k === 'createImageData' ? () => ({ data: new Uint8ClampedArray(16) }) : k.startsWith('create') ? () => ({ addColorStop: noop }) : noop),
     set: (t, k: string, v) => ((t[k] = v), true),
   });
   HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as typeof HTMLCanvasElement.prototype.getContext;
@@ -222,7 +231,7 @@ describe('RoomExperience sequence', () => {
   it('the third SOUND_PLAYED shows the portal and, at PORTAL_DONE, sets room:left then navigates to the Premonition URL', () => {
     const { navigate } = setup();
     toPlugin();
-    const [a, b, c] = h.plugin!.sources.map((s) => s.id);
+    const [a, b, c] = SOURCES.map((s) => s.id);
     act(() => h.plugin!.onSoundPlayed(a));
     act(() => h.plugin!.onSoundPlayed(b));
     expect(stage()).toBe('plugin');
@@ -243,7 +252,7 @@ describe('RoomExperience sequence', () => {
   it('a repeated sound does not fire the portal early', () => {
     setup();
     toPlugin();
-    const [a] = h.plugin!.sources.map((s) => s.id);
+    const [a] = SOURCES.map((s) => s.id);
     for (let i = 0; i < 3; i++) act(() => h.plugin!.onSoundPlayed(a));
     expect(stage()).toBe('plugin');
   });

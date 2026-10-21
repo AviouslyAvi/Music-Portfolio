@@ -9,10 +9,10 @@ import { useRouter } from 'next/navigation';
 import * as THREE from 'three';
 import { ROOM } from '@/content/copy';
 import { LINKS } from '@/content/site';
-import { buildRoom, type Room } from './buildRoom';
+import { buildRoom, updateRoom, type Room } from './buildRoom';
 import { stepPlayer, normalizeYaw, type PlayerState } from './movement';
 import {
-  SOLIDS, ROOM_BOUNDS, START, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable, type Interactable,
+  SOLIDS, ROOM_BOUNDS, START, SEAT_POSE, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable, type Interactable,
 } from './layout';
 import { isAudioUnavailable, DEFAULT_VOLUME, type TrackPlayer } from './audioEngine';
 import { TRACKS } from '@/content/tracks';
@@ -20,7 +20,8 @@ import { Hud } from './Hud';
 import { InteractPrompt } from './InteractPrompt';
 import { IpodScreen } from './ipod/IpodScreen';
 import type { IpodAction } from './ipod/menu';
-import { PluginScreen, SEAT_POSE, SOURCES, updateRoom, makeHeadphones } from './sequence/stubs';
+import { PluginScreen } from '@/premonition/PluginScreen';
+import { FilmGrain } from './FilmGrain';
 import { initialSeq, seqReducer, shouldHoldRoomAudio, type SeqEvent, type SeqState } from './sequence/machine';
 import { Terminal } from './sequence/Terminal';
 import { Portal } from './sequence/Portal';
@@ -221,7 +222,7 @@ export default function RoomExperience({
       const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.05, 30);
       camera.rotation.order = 'YXZ';
       scene.add(camera); // the headphones ride on the camera, so it must be in the scene
-      const headphones = makeHeadphones();
+      const headphones = built.headphones;
       let detachHeadphones: (() => void) | null = null;
       // 1 = lowering, -1 = lifting, 0 = still. hpT is how far down they are, 0..1.
       let hpDir: 0 | 1 | -1 = 0;
@@ -704,6 +705,7 @@ export default function RoomExperience({
 
   return (
     <div ref={rootRef} className={styles.room} role="dialog" aria-modal="true" aria-label="AVIOUS studio room" tabIndex={-1} data-stage={stage}>
+      <FilmGrain />
       <div inert={overlayShown || ipodOpen}>
         <div ref={wrapRef} className={styles.canvasWrap} data-testid="room-canvas" role="img" aria-label={ROOM.canvasLabel} />
         <InteractPrompt ref={ipodPromptRef} target="ipod" onActivate={() => onInteract('ipod')} />
@@ -737,7 +739,6 @@ export default function RoomExperience({
         {pluginMounted && (
           <div className={styles.seqFrame} data-hidden={String(stage !== 'plugin')}>
             <PluginScreen
-              sources={SOURCES}
               playedIds={seq.heard}
               onSoundPlayed={onSoundPlayed}
               onReady={onEngineReady}
