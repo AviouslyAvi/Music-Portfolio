@@ -97,6 +97,7 @@ export function makeMaterials(k: Kit) {
     rug: k.mat(C.rug, { roughness: 1 }),
     rugEdge: k.mat(C.oxblood, { roughness: 1 }),
     speaker: k.mat(0x20181a, { roughness: 0.7 }),
+    cabinet: k.mat(0x6b4630, { roughness: 0.7 }),
     cone: k.mat(0x3a2e29),
     leaf: k.mat(C.sage),
     leafDark: k.mat(0x6a7d5c),
@@ -114,10 +115,10 @@ export function makeMaterials(k: Kit) {
     windowPane: k.mat(C.midnight, { emissive: 0x2e3f58, emissiveIntensity: 0.3, roughness: 0.3 }),
     lampBulb: k.mat(C.lamp, { emissive: C.lamp, emissiveIntensity: 0.5 }),
     lampShade: k.mat(C.mustard, { side: THREE.DoubleSide }),
-    keyWhite: k.mat(C.cotton, { roughness: 0.55 }),
+    keyWhite: k.mat(C.cotton, { emissive: 0x8a7c62, emissiveIntensity: 0.4, roughness: 0.55 }),
     keyBlack: k.mat(0x1c1714, { roughness: 0.5 }),
     keyCase: k.mat(0x2a211b, { roughness: 0.7 }),
-    cable: k.mat(0x120f0d, { roughness: 0.6 }),
+    cable: k.mat(C.terracotta, { roughness: 0.6 }),
     espresso: k.mat(C.espresso, { roughness: 0.75 }),
     mustard: k.mat(C.mustard, { roughness: 0.6 }),
   };
@@ -144,7 +145,7 @@ export function addShell(k: Kit, g: THREE.Object3D, m: Mats, H: number) {
 
 /** Tall walnut slats on the far wall behind the desk. */
 export function addSlatWall(k: Kit, g: THREE.Object3D, m: Mats, H: number) {
-  const x0 = -1.35, x1 = 1.6, top = H - 0.1;
+  const x0 = -0.9, x1 = 0.9, top = H - 0.1;
   k.span(g, m.slatBacking, [x0, 0.1, -3], [x1, top, -2.99]);
   const w = 0.045, pitch = 0.085;
   for (let x = x0 + w / 2 + 0.02; x < x1 - w / 2; x += pitch) {
@@ -163,7 +164,7 @@ export function addDesk(k: Kit, g: THREE.Object3D, m: Mats, desk: Box, top: numb
   k.span(g, m.walnutDark, [desk.maxX - 0.04, 0, desk.minZ + 0.02], [desk.maxX, lh, desk.maxZ - 0.02]);
   k.span(g, m.walnutDark, [desk.minX + 0.04, 0.3, desk.minZ + 0.02], [desk.maxX - 0.04, lh, desk.minZ + 0.05]);
   // Black desk mat under the iPod, keyboard and computer.
-  k.span(g, m.deskMat, [desk.minX + 0.05, top, desk.minZ + 0.05], [desk.maxX - 0.35, top + 0.005, desk.minZ + 0.57], 'desk-mat');
+  k.span(g, m.deskMat, [desk.minX + 0.05, top, desk.minZ + 0.05], [desk.maxX - 0.05, top + 0.005, desk.minZ + 0.57], 'desk-mat');
 }
 
 /** Studio monitor on a stand. The floor plate is the solid and matches the footprint. */
@@ -182,7 +183,7 @@ export function addSpeaker(k: Kit, g: THREE.Object3D, m: Mats, name: string, foo
   cab.position.set(0, TWEETER_Y, 0);
   cab.rotation.y = toe;
   s.add(cab);
-  k.box(cab, m.speaker, [0, 0, 0], [0.24, 0.4, 0.3]);
+  k.box(cab, m.cabinet, [0, 0, 0], [0.24, 0.4, 0.3]);
   const face: V3 = [HALF_PI, 0, 0];
   k.cyl(cab, m.cone, 0.085, 0.085, 0.012, 18, [0, -0.06, 0.152], face);
   k.cyl(cab, m.black, 0.035, 0.035, 0.014, 12, [0, -0.06, 0.155], face);

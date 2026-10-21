@@ -7,14 +7,14 @@ export const ROOM_BOUNDS: Box = { minX: -2, maxX: 2, minZ: -3, maxZ: 3 };
 
 export type Vec3 = { x: number; y: number; z: number };
 
-// Straight walnut desk against the far wall.
-export const DESK: Box = { minX: -0.6, maxX: 1.6, minZ: -3, maxZ: -2.4 };
+// Straight walnut desk against the far wall, centred on the room's middle line (x = 0).
+export const DESK: Box = { minX: -0.75, maxX: 0.75, minZ: -3, maxZ: -2.4 };
 // Speakers on stands, one each side of the desk, flush against it (footprint of stand and cabinet).
-export const SPEAKER_LEFT: Box = { minX: -1, maxX: -0.6, minZ: -2.95, maxZ: -2.55 };
-export const SPEAKER_RIGHT: Box = { minX: 1.6, maxX: 2, minZ: -2.95, maxZ: -2.55 };
+export const SPEAKER_LEFT: Box = { minX: -1.05, maxX: -0.75, minZ: -2.95, maxZ: -2.55 };
+export const SPEAKER_RIGHT: Box = { minX: 0.75, maxX: 1.05, minZ: -2.95, maxZ: -2.55 };
 // 88-key keyboard on a stand, left of the desk, running out from the far wall.
 // Its keys face the room (+x) so the player plays from the lane beside it.
-export const KEYBOARD_STAND: Box = { minX: -2, maxX: -1.6, minZ: -3, maxZ: -1.7 };
+export const KEYBOARD_STAND: Box = { minX: -2, maxX: -1.65, minZ: -3, maxZ: -1.7 };
 
 /** Height of the speaker cabinet centre (the tweeter), metres. */
 export const TWEETER_Y = 1.1;
@@ -37,8 +37,8 @@ export const START: PlayerState = { pos: { x: 0, z: 2.2 }, yaw: 0 };
 // Points on the desk surface.
 export type Interactable = 'ipod' | 'computer';
 
-export const IPOD_POS: Vec2 = { x: -0.5, z: -2.7 };
-export const COMPUTER_POS: Vec2 = { x: 0.7, z: -2.7 };
+export const IPOD_POS: Vec2 = { x: -0.4, z: -2.7 };
+export const COMPUTER_POS: Vec2 = { x: 0.3, z: -2.7 };
 
 export const INTERACT_RADIUS = 1.4;
 

@@ -156,9 +156,9 @@ export function buildRoom(): Room {
   addGuitar(k, group, m);
   addClock(k, group, m, [1.985, 1.85, 0.5]);
   addPosters(k, group, m);
-  addChair(k, group, m, 0.15, -1.75, -0.25);
-  addPlant(k, group, m, [1.5, MAT_TOP, -2.5], 1);
-  addPlant(k, group, m, [-0.52, MAT_TOP, -2.9], 0.55);
+  addChair(k, group, m, -0.15, -1.75, -0.25);
+  addPlant(k, group, m, [1.55, 0, -2.6], 2.2);
+  addPlant(k, group, m, [-0.62, MAT_TOP, -2.88], 0.55);
   const speakers: [THREE.Object3D, THREE.Object3D] = [
     addSpeaker(k, group, m, 'speaker-left', SPEAKER_LEFT, 0.25),
     addSpeaker(k, group, m, 'speaker-right', SPEAKER_RIGHT, -0.25),
@@ -177,12 +177,12 @@ export function buildRoom(): Room {
   const headphones = addHeadphones(k, m);
 
   // Lighting: one warm lamp, a dim cool/warm hemisphere fill. No shadow maps.
-  const bulb = addDeskLamp(k, group, m, 1.12, -2.75, MAT_TOP);
+  const bulb = addDeskLamp(k, group, m, 0.62, -2.8, MAT_TOP);
   const lamp = new THREE.PointLight(ROOM_COLORS.lamp, 2.6, 0, 1.1);
   lamp.name = 'lamp-light';
   lamp.position.copy(bulb);
   group.add(lamp);
-  const fill = new THREE.HemisphereLight(0x7a6355, 0x4a2c1c, 1.7);
+  const fill = new THREE.HemisphereLight(0x9a7e6c, 0x5a3622, 2.7);
   fill.name = 'fill-light';
   group.add(fill);
 
