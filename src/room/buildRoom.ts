@@ -3,17 +3,24 @@
 // The room is muted and dim; only the iPod and the computer screen glow.
 import * as THREE from 'three';
 import { ROOM_COLORS } from './palette';
-import { DESK_MAIN, DESK_LEG, SPEAKER_LEFT, SPEAKER_RIGHT, IPOD_POS, COMPUTER_POS } from './layout';
+import { normalizeYaw } from './movement';
+import { SPEAKERS, START, aimYaw, DESK, KEYBOARD_STAND, SPEAKER_LEFT, SPEAKER_RIGHT, IPOD_POS, COMPUTER_POS } from './layout';
 import {
-  Kit, makeMaterials, addShell, addSlatWall, addDesk, addSpeaker, addWindow, addShelves, addPlant,
-  addGuitar, addClock, addPosters, addRug, addChair, addDeskLamp, type V3,
+  Kit, makeMaterials, addShell, addSlatWall, addDesk, addKeyboardStand, addSpeaker, addWindow, addShelves, addPlant,
+  addGuitar, addClock, addPosters, addRug, addChair, addDeskLamp, addKeyboard88, addIpodCable, addHeadphones, type V3,
 } from './furniture';
 
 export type Room = {
   group: THREE.Group;
   ipod: THREE.Object3D;
   computer: THREE.Object3D;
+  /** The computer's glowing screen plane, for the portal. */
+  screen: THREE.Object3D;
+  /** Detached over-ear headphones; the sequence adds and animates them. */
+  headphones: THREE.Object3D;
   speakers: [THREE.Object3D, THREE.Object3D];
+  /** The turning cabinet of each speaker (left, right); updateRoom aims them. */
+  cabinets: [THREE.Object3D, THREE.Object3D];
   triangleCount: number;
   dispose(): void;
 };
@@ -21,6 +28,7 @@ export type Room = {
 export const ROOM_HEIGHT = 2.7;
 export const DESK_TOP = 0.76;
 const MAT_TOP = DESK_TOP + 0.005;
+export const MAT_TOP_Y = MAT_TOP;
 
 // The glow tier: everything else in the room stays below GLOW_MIN.
 const GLOW_MIN = 0.9;
@@ -56,6 +64,12 @@ function addIpod(k: Kit, g: THREE.Object3D): THREE.Object3D {
   const face: V3 = [Math.PI / 2, 0, 0];
   k.cyl(lean, wheel, 0.039, 0.039, 0.004, 24, [0, H * 0.27, D / 2], face);
   k.cyl(lean, body, 0.013, 0.013, 0.006, 16, [0, H * 0.27, D / 2 + 0.001], face);
+  // Dock port on the bottom edge, where the cable plugs in.
+  k.box(lean, stand, [0.035, 0, 0.004], [0.022, 0.004, 0.01]);
+  const port = new THREE.Object3D();
+  port.name = 'ipod-port';
+  port.position.set(0.035, -0.003, 0.004);
+  lean.add(port);
   return ipod;
 }
 
@@ -80,13 +94,18 @@ function addComputer(k: Kit, g: THREE.Object3D): THREE.Object3D {
   k.box(pc, shell, [0, 0.27, 0.01], [0.46, 0.38, 0.22]);
   k.box(pc, shell, [0, 0.26, -0.15], [0.34, 0.3, 0.14]);
   k.box(pc, bezel, [0, 0.285, 0.121], [0.38, 0.29, 0.004]);
-  k.plane(pc, screen, [0, 0.285, 0.1235], 0.34, 0.25);
+  const screenPlane = k.plane(pc, screen, [0, 0.285, 0.1235], 0.34, 0.25);
+  screenPlane.name = 'computer-screen';
   // A few darker lines on the screen read as a boot prompt from across the room.
   for (let i = 0; i < 4; i++) {
     const w = 0.16 - i * 0.02;
     k.plane(pc, glyph, [-0.14 + w / 2 + i * 0.012, 0.36 - i * 0.03, 0.1245], w, 0.008);
   }
   k.box(pc, bezel, [0.17, 0.11, 0.122], [0.03, 0.012, 0.003]);
+  const backPort = new THREE.Object3D();
+  backPort.name = 'computer-back-port';
+  backPort.position.set(0, 0.14, -0.22);
+  pc.add(backPort);
   // Keyboard on the mat in front.
   k.box(pc, keys, [0, 0.012, 0.25], [0.42, 0.024, 0.14], [0.06, 0, 0]);
   k.box(pc, bezel, [0, 0.026, 0.25], [0.39, 0.006, 0.11], [0.06, 0, 0]);
@@ -104,6 +123,23 @@ function countTriangles(root: THREE.Object3D): number {
   return n;
 }
 
+/** How fast the speakers turn toward the listener (per second, exponential ease). */
+export const AIM_RESPONSE = 6;
+
+/**
+ * Per-frame room animation: each speaker cabinet eases toward the listener by the
+ * shortest way round. The ease is exponential so it never overshoots, whatever dt is.
+ */
+export function updateRoom(room: Room, listener: { x: number; z: number; yaw: number }, dt: number): void {
+  const t = Number.isFinite(dt) && dt > 0 ? dt : 0;
+  if (t === 0) return;
+  const k = 1 - Math.exp(-AIM_RESPONSE * t);
+  room.cabinets.forEach((cab, i) => {
+    const target = aimYaw(SPEAKERS[i], listener);
+    cab.rotation.y = normalizeYaw(cab.rotation.y + normalizeYaw(target - cab.rotation.y) * k);
+  });
+}
+
 export function buildRoom(): Room {
   const k = new Kit();
   const m = makeMaterials(k);
@@ -112,30 +148,41 @@ export function buildRoom(): Room {
 
   addShell(k, group, m, ROOM_HEIGHT);
   addSlatWall(k, group, m, ROOM_HEIGHT);
-  addDesk(k, group, m, DESK_MAIN, DESK_LEG, DESK_TOP);
+  addDesk(k, group, m, DESK, DESK_TOP);
+  addKeyboardStand(k, group, m, KEYBOARD_STAND);
   addRug(k, group, m);
   addWindow(k, group, m);
   addShelves(k, group, m);
   addGuitar(k, group, m);
   addClock(k, group, m, [1.985, 1.85, 0.5]);
   addPosters(k, group, m);
-  addChair(k, group, m, 0.15, -1.75, -0.25);
-  addPlant(k, group, m, [1.38, MAT_TOP, -1.85], 1);
-  addPlant(k, group, m, [-1.05, MAT_TOP, -2.6], 0.55);
+  addChair(k, group, m, -0.15, -1.75, -0.25);
+  addPlant(k, group, m, [1.55, 0, -2.6], 2.2);
+  addPlant(k, group, m, [-0.62, MAT_TOP, -2.88], 0.55);
   const speakers: [THREE.Object3D, THREE.Object3D] = [
     addSpeaker(k, group, m, 'speaker-left', SPEAKER_LEFT, 0.25),
     addSpeaker(k, group, m, 'speaker-right', SPEAKER_RIGHT, -0.25),
   ];
+  const cabinets = speakers.map((sp) => sp.getObjectByName(`${sp.name}-cabinet`)!) as [THREE.Object3D, THREE.Object3D];
+  cabinets.forEach((c, i) => (c.rotation.y = aimYaw(SPEAKERS[i], START.pos)));
   const ipod = addIpod(k, group);
   const computer = addComputer(k, group);
+  addKeyboard88(k, group, m, KEYBOARD_STAND);
+  group.updateMatrixWorld(true);
+  const at = (name: string): V3 => {
+    const p = group.getObjectByName(name)!.getWorldPosition(new THREE.Vector3());
+    return [p.x, p.y, p.z];
+  };
+  addIpodCable(k, group, m, at('ipod-port'), at('computer-back-port'), MAT_TOP + 0.004);
+  const headphones = addHeadphones(k, m);
 
   // Lighting: one warm lamp, a dim cool/warm hemisphere fill. No shadow maps.
-  const bulb = addDeskLamp(k, group, m, -0.95, -2.75, MAT_TOP);
+  const bulb = addDeskLamp(k, group, m, 0.62, -2.8, MAT_TOP);
   const lamp = new THREE.PointLight(ROOM_COLORS.lamp, 2.6, 0, 1.1);
   lamp.name = 'lamp-light';
   lamp.position.copy(bulb);
   group.add(lamp);
-  const fill = new THREE.HemisphereLight(0x5a5e68, 0x3a2c20, 1.7);
+  const fill = new THREE.HemisphereLight(0x9a7e6c, 0x5a3622, 2.7);
   fill.name = 'fill-light';
   group.add(fill);
 
@@ -144,7 +191,10 @@ export function buildRoom(): Room {
     group,
     ipod,
     computer,
+    screen: computer.getObjectByName('computer-screen')!,
+    headphones,
     speakers,
+    cabinets,
     triangleCount: countTriangles(group),
     dispose() {
       if (disposed) return;

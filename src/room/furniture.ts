@@ -3,8 +3,9 @@
 // Coordinates follow layout.ts: metres, x right, z toward the viewer, y up,
 // floor at y = 0, far wall at z = -3.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ROOM_COLORS } from './palette';
-import { RUG } from './layout';
+import { RUG, TWEETER_Y } from './layout';
 import type { Box } from './movement';
 
 export type V3 = [number, number, number];
@@ -82,37 +83,44 @@ export class Kit {
 const C = ROOM_COLORS;
 const HALF_PI = Math.PI / 2;
 
-/** Shared dusty palette, created once per room so materials are reused. */
+/** Shared warm 70s palette, created once per room so materials are reused. */
 export function makeMaterials(k: Kit) {
   return {
-    wall: k.mat(C.charcoal),
-    ceiling: k.mat(0x1c1e21),
-    floor: k.mat(0x2b231d),
+    wall: k.mat(0x4a3529),
+    ceiling: k.mat(0x2e221b),
+    floor: k.mat(0x3d2c21),
     walnut: k.mat(C.walnut, { roughness: 0.8 }),
     walnutDark: k.mat(0x402c20, { roughness: 0.8 }),
-    slatBacking: k.mat(0x191715),
-    black: k.mat(0x161618, { roughness: 0.7 }),
-    deskMat: k.mat(0x111113),
+    slatBacking: k.mat(0x1e1612),
+    black: k.mat(0x1a1512, { roughness: 0.7 }),
+    deskMat: k.mat(0x17110e),
     rug: k.mat(C.rug, { roughness: 1 }),
-    rugEdge: k.mat(0x5c5954, { roughness: 1 }),
-    speaker: k.mat(0x1c1c1e, { roughness: 0.7 }),
-    cone: k.mat(0x2c2b2a),
-    leaf: k.mat(0x3b4733),
-    leafDark: k.mat(0x2e3a2a),
-    pot: k.mat(0x6b4a3a),
-    clockFace: k.mat(0x7c7266),
-    posterA: k.mat(0x5a2c30),
-    posterA2: k.mat(0x8a6a48),
-    posterB: k.mat(0x33464a),
-    posterB2: k.mat(0x6f6656),
+    rugEdge: k.mat(C.oxblood, { roughness: 1 }),
+    speaker: k.mat(0x20181a, { roughness: 0.7 }),
+    cabinet: k.mat(0x6b4630, { roughness: 0.7 }),
+    cone: k.mat(0x3a2e29),
+    leaf: k.mat(C.sage),
+    leafDark: k.mat(0x6a7d5c),
+    pot: k.mat(C.terracotta),
+    clockFace: k.mat(0x9a8c74),
+    posterA: k.mat(C.oxblood),
+    posterA2: k.mat(C.mustard),
+    posterB: k.mat(C.midnight),
+    posterB2: k.mat(C.terracotta),
     book1: k.mat(0x4d3b2e),
-    book2: k.mat(0x3c4446),
+    book2: k.mat(0x3c4a52),
     book3: k.mat(0x6a5a44),
-    guitarBody: k.mat(0x7a5232, { roughness: 0.6 }),
+    guitarBody: k.mat(0xa05f2c, { roughness: 0.6 }),
     guitarHole: k.mat(0x120e0c),
-    windowPane: k.mat(0x1e252c, { emissive: 0x2e3a46, emissiveIntensity: 0.3, roughness: 0.3 }),
+    windowPane: k.mat(C.midnight, { emissive: 0x2e3f58, emissiveIntensity: 0.3, roughness: 0.3 }),
     lampBulb: k.mat(C.lamp, { emissive: C.lamp, emissiveIntensity: 0.5 }),
-    lampShade: k.mat(0x26221e, { side: THREE.DoubleSide }),
+    lampShade: k.mat(C.mustard, { side: THREE.DoubleSide }),
+    keyWhite: k.mat(C.cotton, { emissive: 0x8a7c62, emissiveIntensity: 0.4, roughness: 0.55 }),
+    keyBlack: k.mat(0x1c1714, { roughness: 0.5 }),
+    keyCase: k.mat(0x2a211b, { roughness: 0.7 }),
+    cable: k.mat(C.terracotta, { roughness: 0.6 }),
+    espresso: k.mat(C.espresso, { roughness: 0.75 }),
+    mustard: k.mat(C.mustard, { roughness: 0.6 }),
   };
 }
 export type Mats = ReturnType<typeof makeMaterials>;
@@ -137,7 +145,7 @@ export function addShell(k: Kit, g: THREE.Object3D, m: Mats, H: number) {
 
 /** Tall walnut slats on the far wall behind the desk. */
 export function addSlatWall(k: Kit, g: THREE.Object3D, m: Mats, H: number) {
-  const x0 = -1.35, x1 = 1.6, top = H - 0.1;
+  const x0 = -0.9, x1 = 0.9, top = H - 0.1;
   k.span(g, m.slatBacking, [x0, 0.1, -3], [x1, top, -2.99]);
   const w = 0.045, pitch = 0.085;
   for (let x = x0 + w / 2 + 0.02; x < x1 - w / 2; x += pitch) {
@@ -145,21 +153,18 @@ export function addSlatWall(k: Kit, g: THREE.Object3D, m: Mats, H: number) {
   }
 }
 
-/** L-shaped desk: the two tops carry userData.solid and match the layout boxes exactly. */
-export function addDesk(k: Kit, g: THREE.Object3D, m: Mats, main: Box, leg: Box, top: number) {
+/** Straight desk: the top carries userData.solid and matches the layout box exactly. */
+export function addDesk(k: Kit, g: THREE.Object3D, m: Mats, desk: Box, top: number) {
   const th = 0.045;
-  const a = k.span(g, m.walnut, [main.minX, top - th, main.minZ], [main.maxX, top, main.maxZ], 'desk-main');
-  const b = k.span(g, m.walnut, [leg.minX, top - th, leg.minZ], [leg.maxX, top, leg.maxZ], 'desk-leg');
+  const a = k.span(g, m.walnut, [desk.minX, top - th, desk.minZ], [desk.maxX, top, desk.maxZ], 'desk');
   a.userData.solid = true;
-  b.userData.solid = true;
   // Slab legs and a modesty panel, all inside the desk footprint.
   const lh = top - th;
-  k.span(g, m.walnutDark, [main.minX, 0, main.minZ + 0.02], [main.minX + 0.04, lh, main.maxZ - 0.02]);
-  k.span(g, m.walnutDark, [leg.maxX - 0.04, 0, main.minZ + 0.02], [leg.maxX, lh, leg.maxZ - 0.02]);
-  k.span(g, m.walnutDark, [leg.minX, 0, leg.maxZ - 0.06], [leg.minX + 0.04, lh, leg.maxZ - 0.02]);
-  k.span(g, m.walnutDark, [main.minX + 0.04, 0.3, main.minZ + 0.02], [leg.maxX - 0.04, lh, main.minZ + 0.05]);
+  k.span(g, m.walnutDark, [desk.minX, 0, desk.minZ + 0.02], [desk.minX + 0.04, lh, desk.maxZ - 0.02]);
+  k.span(g, m.walnutDark, [desk.maxX - 0.04, 0, desk.minZ + 0.02], [desk.maxX, lh, desk.maxZ - 0.02]);
+  k.span(g, m.walnutDark, [desk.minX + 0.04, 0.3, desk.minZ + 0.02], [desk.maxX - 0.04, lh, desk.minZ + 0.05]);
   // Black desk mat under the iPod, keyboard and computer.
-  k.span(g, m.deskMat, [-1.0, top, -2.95], [1.25, top + 0.005, -2.43], 'desk-mat');
+  k.span(g, m.deskMat, [desk.minX + 0.05, top, desk.minZ + 0.05], [desk.maxX - 0.05, top + 0.005, desk.minZ + 0.57], 'desk-mat');
 }
 
 /** Studio monitor on a stand. The floor plate is the solid and matches the footprint. */
@@ -171,18 +176,35 @@ export function addSpeaker(k: Kit, g: THREE.Object3D, m: Mats, name: string, foo
   g.add(s);
   const plate = k.span(s, m.black, [foot.minX - cx, 0, foot.minZ - cz], [foot.maxX - cx, 0.025, foot.maxZ - cz]);
   plate.userData.solid = true;
-  k.box(s, m.black, [0, 0.47, 0], [0.05, 0.9, 0.05]);
-  k.box(s, m.black, [0, 0.91, 0], [0.22, 0.02, 0.22]);
+  k.box(s, m.black, [0, 0.46, 0], [0.05, 0.88, 0.05]);
+  k.box(s, m.black, [0, 0.89, 0], [0.22, 0.02, 0.22]);
   const cab = new THREE.Group();
-  cab.position.set(0, 1.13, 0);
+  cab.name = `${name}-cabinet`;
+  cab.position.set(0, TWEETER_Y, 0);
   cab.rotation.y = toe;
   s.add(cab);
-  k.box(cab, m.speaker, [0, 0, 0], [0.24, 0.4, 0.3]);
+  k.box(cab, m.cabinet, [0, 0, 0], [0.24, 0.4, 0.3]);
   const face: V3 = [HALF_PI, 0, 0];
   k.cyl(cab, m.cone, 0.085, 0.085, 0.012, 18, [0, -0.06, 0.152], face);
   k.cyl(cab, m.black, 0.035, 0.035, 0.014, 12, [0, -0.06, 0.155], face);
   k.cyl(cab, m.cone, 0.03, 0.03, 0.012, 12, [0, 0.12, 0.152], face);
   return s;
+}
+
+/** Height of the keyboard stand's top rails, metres. */
+export const KEYBOARD_STAND_TOP = 0.78;
+
+/** Keyboard stand: four legs, a top frame and a floor plate. The plate is the solid and matches the footprint. */
+export function addKeyboardStand(k: Kit, g: THREE.Object3D, m: Mats, stand: Box) {
+  const plate = k.span(g, m.black, [stand.minX, 0, stand.minZ], [stand.maxX, 0.02, stand.maxZ], 'keyboard-stand');
+  plate.userData.solid = true;
+  const t = 0.035, top = KEYBOARD_STAND_TOP;
+  const x0 = stand.minX + 0.04, x1 = stand.maxX - 0.04, z0 = stand.minZ + 0.04, z1 = stand.maxZ - 0.04;
+  for (const x of [x0, x1])
+    for (const z of [z0, z1]) k.span(g, m.black, [x - t / 2, 0.02, z - t / 2], [x + t / 2, top, z + t / 2]);
+  // Rails along the long sides and a cross brace at each end.
+  for (const x of [x0, x1]) k.span(g, m.black, [x - t / 2, top - 0.03, z0], [x + t / 2, top, z1]);
+  for (const z of [z0, z1]) k.span(g, m.black, [x0, top - 0.03, z - t / 2], [x1, top, z + t / 2]);
 }
 
 /** Window on the left wall: dim bluish pane (dusk), black frame and mullions. */
@@ -330,4 +352,120 @@ export function addDeskLamp(k: Kit, g: THREE.Object3D, m: Mats, x: number, z: nu
   k.cyl(head, m.lampShade, 0.035, 0.1, 0.13, 14, [0, -0.04, 0]);
   k.cyl(head, m.lampBulb, 0.04, 0.04, 0.03, 10, [0, -0.08, 0]);
   return new THREE.Vector3(x + 0.17, top + 0.33, z + 0.14);
+}
+
+/** Merge boxes into one geometry (kept in the kit so dispose frees it). */
+function mergedBoxes(k: Kit, boxes: { pos: V3; size: V3 }[]): THREE.BufferGeometry {
+  const parts = boxes.map(({ pos, size }) => {
+    const g = new THREE.BoxGeometry(...size);
+    g.translate(...pos);
+    return g;
+  });
+  const merged = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  k.geometries.add(merged);
+  return merged;
+}
+
+export const KEYBOARD_KEY_W = 0.0236;
+const WHITE_KEYS = 52;
+const KEYBOARD_LEN = WHITE_KEYS * KEYBOARD_KEY_W;
+
+/**
+ * 88-key keyboard (A0 to C8) lying on its stand, long axis along z with the
+ * keys facing +x. The light keys and the dark keys are one merged mesh each.
+ * userData.blackAfterWhite lists the white-key indices (0 = A0) a black key follows.
+ */
+export function addKeyboard88(k: Kit, g: THREE.Object3D, m: Mats, stand: Box): THREE.Group {
+  const kb = new THREE.Group();
+  kb.name = 'keyboard-88';
+  kb.position.set((stand.minX + stand.maxX) / 2, KEYBOARD_STAND_TOP, (stand.minZ + stand.maxZ) / 2);
+  // Local frame: x along the keys (treble at +x), front at +z. Turn so front is +x
+  // in the room and the bass end is nearest the viewer.
+  kb.rotation.y = HALF_PI;
+  g.add(kb);
+
+  const caseW = KEYBOARD_LEN + 0.04, depth = 0.3;
+  k.box(kb, m.keyCase, [0, 0.03, 0], [caseW, 0.06, depth]);
+  k.box(kb, m.keyCase, [0, 0.075, -0.1], [caseW, 0.03, 0.1]);
+  for (const sx of [-1, 1]) k.box(kb, m.keyCase, [sx * (caseW / 2 - 0.015), 0.07, 0.03], [0.03, 0.04, 0.24]);
+
+  const whiteBoxes: { pos: V3; size: V3 }[] = [];
+  const blackBoxes: { pos: V3; size: V3 }[] = [];
+  const blackAfter: number[] = [];
+  for (let i = 0; i < WHITE_KEYS; i++) {
+    const x = -KEYBOARD_LEN / 2 + (i + 0.5) * KEYBOARD_KEY_W;
+    whiteBoxes.push({ pos: [x, 0.069, 0.05], size: [KEYBOARD_KEY_W - 0.0012, 0.018, 0.2] });
+    if (i < WHITE_KEYS - 1 && !'BE'.includes('ABCDEFG'[i % 7])) {
+      blackAfter.push(i);
+      blackBoxes.push({ pos: [x + KEYBOARD_KEY_W / 2, 0.088, -0.0], size: [0.0135, 0.02, 0.12] });
+    }
+  }
+  const wm = new THREE.Mesh(mergedBoxes(k, whiteBoxes), m.keyWhite);
+  wm.name = 'white-keys';
+  const bm = new THREE.Mesh(mergedBoxes(k, blackBoxes), m.keyBlack);
+  bm.name = 'black-keys';
+  kb.add(wm, bm);
+  kb.userData.whiteKeys = whiteBoxes.length;
+  kb.userData.blackKeys = blackBoxes.length;
+  kb.userData.blackAfterWhite = blackAfter;
+  return kb;
+}
+
+/**
+ * Cable from the iPod's port to the back of the computer. It leaves to the right,
+ * lies on the desk mat behind the computer and rises to the back port.
+ * userData.ends holds the two end points (world, the room group sits at the origin).
+ */
+export function addIpodCable(k: Kit, g: THREE.Object3D, m: Mats, from: V3, to: V3, restY: number, lane = -2.945): THREE.Group {
+  const cable = new THREE.Group();
+  cable.name = 'ipod-cable';
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const curve = new THREE.CatmullRomCurve3(
+    [
+      v(...from),
+      v(from[0] + 0.05, restY + 0.012, from[2] + 0.04),
+      v(from[0] + 0.12, restY, from[2] - 0.03),
+      v(from[0] + 0.2, restY, lane),
+      v(to[0] - 0.3, restY, lane),
+      v(to[0] - 0.12, restY, lane),
+      v(to[0], to[1], to[2] + 0.002),
+      v(...to),
+    ],
+    false,
+    'centripetal',
+  );
+  // The spline can dip under the mat between the end points; resample and clamp it to rest on the desk.
+  const dense = curve.getPoints(80).map((p) => v(p.x, Math.max(p.y, restY), p.z));
+  const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(dense, false, 'centripetal'), 80, 0.0035, 5, false);
+  k.geometries.add(geo);
+  cable.add(new THREE.Mesh(geo, m.cable));
+  // Small plugs where it meets each device.
+  for (const p of [from, to]) k.box(cable, m.black, p, [0.012, 0.01, 0.012]);
+  cable.userData.ends = [v(...from), v(...to)];
+  g.add(cable);
+  return cable;
+}
+
+/**
+ * Over-ear headphones, detached: centred on the head, front toward -z, band over
+ * the top (+y). The sequence adds them to the scene and animates them.
+ */
+export function addHeadphones(k: Kit, m: Mats): THREE.Group {
+  const h = new THREE.Group();
+  h.name = 'headphones';
+  const R = 0.1;
+  const band = new THREE.TorusGeometry(R, 0.009, 6, 24, Math.PI);
+  k.geometries.add(band);
+  const bandMesh = new THREE.Mesh(band, m.espresso);
+  bandMesh.name = 'headphones-band';
+  h.add(bandMesh);
+  const side: V3 = [0, 0, HALF_PI];
+  for (const s of [-1, 1]) {
+    // Cup: mustard shell, espresso cushion facing the head.
+    k.cyl(h, m.mustard, 0.05, 0.05, 0.03, 18, [s * (R + 0.02), 0, 0], side);
+    k.cyl(h, m.espresso, 0.046, 0.05, 0.022, 18, [s * (R - 0.004), 0, 0], side);
+    k.box(h, m.espresso, [s * R, 0.03, 0], [0.012, 0.06, 0.012]);
+  }
+  return h;
 }

@@ -1,4 +1,6 @@
 import { test, expect, devices, type Page, type Browser, type BrowserContextOptions } from '@playwright/test';
+import { KEYBOARD_STAND, DESK, IPOD_POS, COMPUTER_POS } from '../../src/room/layout';
+import { PLAYER_RADIUS } from '../../src/room/movement';
 
 const ENTER_DIALOG = { name: 'Enter the room' };
 const DEMO_DIALOG = { name: 'Premonition demo' };
@@ -47,10 +49,15 @@ async function holdKey(page: Page, key: string, ms: number) {
 // The floating prompts are display:none while hidden, so they are found by attribute, not role.
 const promptOf = (page: Page, target: 'ipod' | 'computer') => page.locator(`[data-prompt="${target}"]`);
 
-/** Walk to the desk; strafe right as well when the computer is the target. */
+/** Walk to the desk, then strafe until in front of the target (positions come from the layout). */
 async function walkToDesk(page: Page, target: 'ipod' | 'computer') {
   await holdKey(page, 'w', 2600);
-  if (target === 'computer') await holdKey(page, 'd', 900);
+  const goal = (target === 'ipod' ? IPOD_POS : COMPUTER_POS).x;
+  for (let i = 0; i < 20; i++) {
+    const dx = goal - (await attr(page, 'data-player-x'));
+    if (Math.abs(dx) < 0.08) break;
+    await holdKey(page, dx < 0 ? 'a' : 'd', Math.min(300, Math.max(40, (Math.abs(dx) / 1.6) * 1000)));
+  }
   const prompt = promptOf(page, target);
   await expect(prompt).toHaveAttribute('data-visible', 'true');
   return prompt;
@@ -168,8 +175,7 @@ test.describe('in the room', () => {
     await enterRoom(page);
     const prompt = promptOf(page, 'ipod');
     await expect(prompt).toHaveAttribute('data-visible', 'false');
-    await holdKey(page, 'w', 2600);
-    await expect(prompt).toHaveAttribute('data-visible', 'true');
+    await walkToDesk(page, 'ipod');
     await expect(prompt).toContainText('Press E to interact');
     await page.keyboard.press('e');
     const ipod = page.getByTestId('ipod');
@@ -186,6 +192,20 @@ test.describe('in the room', () => {
     await expect(vol).toHaveAttribute('aria-valuenow', '75');
     await page.keyboard.press('ArrowUp');
     await expect(vol).toHaveAttribute('aria-valuenow', '80');
+  });
+
+  test('walking to the left of the desk is blocked by the keyboard stand', async ({ page }) => {
+    await enterRoom(page);
+    await holdKey(page, 'w', 1500);
+    // Strafe left into the lane beside the keyboard stand, then push on toward the far wall.
+    const laneX = (KEYBOARD_STAND.minX + KEYBOARD_STAND.maxX) / 2;
+    for (let i = 0; i < 12 && (await attr(page, 'data-player-x')) > laneX + 0.1; i++) await holdKey(page, 'a', 250);
+    expect(await attr(page, 'data-player-x')).toBeLessThan(DESK.minX);
+    await holdKey(page, 'w', 3000);
+    const z = await attr(page, 'data-player-z');
+    // The player slides to a stop at the stand's front edge and never passes through it.
+    expect(z).toBeGreaterThanOrEqual(KEYBOARD_STAND.maxZ + PLAYER_RADIUS - 0.03);
+    expect(z).toBeLessThan(KEYBOARD_STAND.maxZ + PLAYER_RADIUS + 0.2);
   });
 
   test('Escape steps back through the iPod menu, then puts the iPod down and the prompt returns', async ({ page }) => {
