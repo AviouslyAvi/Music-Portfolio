@@ -18,7 +18,7 @@
 - Audio is processed in the browser and never uploaded; the UI says so in one line.
 - Premonition is an offline renderer, not a live insert effect; copy never claims otherwise, no Windows claim, no testimonials or benchmarks.
 - No pure white, no emoji, no exclamation marks. Never mention the Jam Room or remote-recording projects.
-- Skip to site is always visible in the room and never gated.
+- Skip to site is always visible in the room (top-right) and never gated. No buttons in the room's bottom-left; the floating E prompts replace them.
 - Budget: room chunk plus audio under 2 MB gzipped with no room chunk on any route; the WASM plus plugin UI target under about 1.5 MB gzipped and never load in the room chunk, on `/`, or on routes other than the room's computer and `/premonition`.
 - Do not build outside this plan until the owner approves it. The spike (Task 1) stays local.
 
@@ -166,19 +166,26 @@
 - [ ] **Step 2:** Run, fail. **Step 3:** Implement; the click wheel is an SVG ring, pointer drag measures angle, centre button selects, "MENU" label goes back; a focusable list with `aria-activedescendant` mirrors the screen for assistive tech. **Step 4:** Pass.
 - [ ] **Step 5:** Commit: `feat(room): click-wheel iPod menu and UI`.
 
-### Task 7: Room integration
+### Task 7: Room integration (floating E prompts, zoom, iPod and plugin overlays)
 
 **Files:**
+- Create: `src/room/InteractPrompt.tsx`, `src/room/InteractPrompt.test.tsx`
 - Modify: `src/room/RoomExperience.tsx`, `src/room/Hud.tsx`, `src/room/Hud.test.tsx`, `src/room/room.module.css`, `src/content/copy.ts`
-- Test: `src/room/Hud.test.tsx`, `tests/e2e/room.spec.ts`
+- Test: `src/room/Hud.test.tsx`, `src/room/InteractPrompt.test.tsx`, `tests/e2e/room.spec.ts`
 
 **Interfaces:**
-- Consumes: `IpodScreen`, `IpodAction`, `PluginScreen`, `TrackPlayer.goTo`.
-- Produces: `Hud` props reduce to `{ trackTitle; audioError?; onSkip: () => void }` (a "Skip to site" button plus the now-playing line and hint). Clicking the iPod or pressing E near it opens the iPod overlay; the actions map: `play` calls `goTo`, `computer` closes the iPod and opens `PluginScreen` overlay with Close, `leave` calls `onLeave`, `link` navigates, `close` returns to walking. Clicking the computer in the room also opens `PluginScreen`. `onFirstPreview` shows the quiet "Like it? Continue to the site" line with a link and fires `track('demo_played')` once; Skip fires `demo_skipped`, Leave fires a new `room_left` event (add to `EventName`).
+- Consumes: `IpodScreen`, `IpodAction`, `PluginScreen`, `TrackPlayer.goTo`, `Interactable` (`'ipod' | 'computer'`), the existing `nearby` detection (`INTERACT_RADIUS`), `DESK_POSE` and the camera ease in `RoomExperience.tsx`.
+- Produces:
+  ```ts
+  export function InteractPrompt(props: { target: Interactable; screenX: number; screenY: number; visible: boolean; onActivate: () => void }): JSX.Element;
+  export const IPOD_POSE: { x: number; z: number; yaw: number; pitch: number };  // close, in front of the iPod screen
+  ```
+  `InteractPrompt` is the Roblox-style label from the spec (small dark rounded label, circled **E**, text "Use the iPod" or "Use the computer"), absolutely positioned at the object's projected screen position, a real `<button>` with `aria-label` "Use the iPod, press E". `RoomExperience` projects each object's anchor point with `camera` each frame and updates the two prompts via refs (no React state per frame), and hides them outside `mode === 'walk'` or out of range.
+  `Hud` props reduce to `{ trackTitle: string; audioError?: boolean; onSkip: () => void }`: a "Skip to site" link top-right, the now-playing text, no other buttons, nothing clickable bottom-left. `RoomExperience.interact('ipod')` now eases to `IPOD_POSE` (same ease and `mode` machine as the computer, a new mode value `'ipod'`), then opens the iPod overlay centred; `interact('computer')` is unchanged (ease to `DESK_POSE`, then the plugin overlay). Actions from the iPod: `play` calls `goTo`, `computer` eases from the iPod pose to `DESK_POSE` and opens `PluginScreen`, `leave` calls `onLeave`, `link` navigates, `close` eases back to walking. Escape puts either overlay down and eases back. Clicking an object in range or its prompt does the same as E. `onFirstPreview` shows the quiet "Like it? Continue to the site" line with a link and fires `track('demo_played')` once; Skip fires `demo_skipped`, Leave fires a new `room_left` event (add to `EventName`).
 
-- [ ] **Step 1: Failing tests:** `Hud has exactly one button, Skip to site, and no iPod, computer or leave buttons`, `E near the iPod opens the iPod and Escape puts it down`, `choosing Leave the room from the iPod calls onLeave`, `choosing a track changes the now-playing title`, `the plugin overlay closes with Esc and returns focus to the room`, `Skip is reachable by Tab while the iPod is open`.
-- [ ] **Step 2:** Run, fail. **Step 3:** Implement. **Step 4:** Pass; run `npm test` and `npx tsc --noEmit`.
-- [ ] **Step 5:** Commit: `feat(room): iPod operates the room; computer opens the real plugin`.
+- [ ] **Step 1: Failing tests:** `Hud has one control, Skip to site, positioned top-right, and no iPod, computer or leave buttons`, `InteractPrompt renders a circled E and "Use the iPod" with an accessible name, and calls onActivate when clicked`, `InteractPrompt is hidden when visible is false`, `E near the iPod eases to IPOD_POSE then shows the iPod overlay` (e2e), `no prompt shows while the iPod or computer overlay is open`, `walking out of range hides the prompt`, `Escape from the iPod eases back and the prompt returns`, `choosing Leave the room from the iPod calls onLeave`, `choosing a track changes the now-playing title`, `the plugin overlay closes with Esc and returns focus to the room`, `Skip is reachable by Tab while the iPod is open`.
+- [ ] **Step 2:** Run, fail. **Step 3:** Implement. **Step 4:** Pass; run `npm test` and `npx tsc --noEmit`; view in the browser at 1280 px and send the owner a screenshot of both prompts and both zooms.
+- [ ] **Step 5:** Commit: `feat(room): floating E prompts, zoom into iPod and computer, plugin overlay`.
 
 ### Task 8: Opaque front-door opener
 

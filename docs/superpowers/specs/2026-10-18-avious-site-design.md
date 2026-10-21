@@ -122,6 +122,17 @@ The owner's words: "I want to have to interact with the iPod to do things. On th
 - **Visitors cannot download the rendered riser.** Listen only.
 - **The room is the site's front door.** A full-screen opener covers the home page; Skip or Leave hides it only until the next page load (not for the whole tab session); finishing the demo opens the site (the spec's step 7 stands). The home page content stays in the HTML underneath for search engines and shared links.
 
+### Interaction prompt and zoom (owner, later on 2026-10-20; supersedes the HUD and click behaviour above)
+
+The owner's words: "I like the fact that the character zooms into the computer when tapping use the computer, but instead of the buttons on the bottom left saying change the song on the ipod or use the computer, I want a button that says e to interact when the person gets close to the computer. it should be floating near the computer. Same thing for the ipod. Also the character would kind of zoom into the ipod screen and it could be used to change the song. No buttons in the bottom left." They shared a reference image: a Roblox "E circle prompt", a small dark rounded label floating on the object with a circled **E** key and the word "Press".
+
+- **No buttons in the bottom left.** The HUD no longer has "Play next track (iPod)", "Use the computer" or "Leave the room" buttons. Nothing clickable sits there.
+- **Floating proximity prompt.** When the visitor is within interaction range of the computer, a small dark rounded label appears floating beside the computer: a circled **E** and a short verb phrase. Same for the iPod when near it. It follows the object on screen as the camera moves (a DOM element positioned from the object's projected position), and hides when the visitor walks away or while in a zoom. The existing proximity check (`INTERACT_RADIUS`) and the E key stay. Wording is my call: "E  Use the computer" and "E  Use the iPod" (the reference says "Press"; the owner may prefer "Press").
+- **Pressing E zooms in, for both objects.** The computer keeps today's camera ease to the desk pose, then the real Premonition screen opens. The iPod now does the same: the camera eases to a close pose in front of the iPod screen, then the click-wheel iPod UI opens centred (my call: a DOM overlay on top of the zoomed view, because a wheel drawn on the small 3D model would be too small to operate). Changing the song, and everything else on the iPod menu, happens there. Escape puts the iPod or computer down and eases the camera back to walking.
+- **Still allowed (my call):** clicking the iPod or computer in the room does the same as pressing E when in range. The floating prompt is also clickable, so a mouse-only visitor is not stuck.
+- **Skip to site** stays visible at all times as a small link in the top-right corner (my call; it is the one always-visible control, kept because the original anti-goal forbids a gate). The now-playing line stays as plain text (not a button).
+- Accessibility: the prompt is a real focusable element with an accessible name ("Use the iPod, press E"); E works with the keyboard with or without pointer lock.
+
 ### The iPod
 
 Menu (the owner approved this list; the contents of each page are my call):
@@ -138,7 +149,7 @@ Menu (the owner approved this list; the contents of each page are my call):
 My calls on behaviour:
 - Keyboard: arrow keys scroll, Enter chooses, Escape goes back; Escape at the top level puts the iPod down and returns to walking. The wheel is also reachable by keyboard and screen reader (focusable list with labels), since the room still needs a way to reach the same content without a pointer.
 - Pages that are text-only on the iPod screen must stay short; the full page on the site is the real content.
-- The always-visible **Skip to site** link stays in a screen corner at all times. It is the one control that is not on the iPod, because the original anti-goal (a gate that blocks the site) still stands.
+- The always-visible **Skip to site** link stays in a screen corner at all times (top-right; see "Interaction prompt and zoom"). It is the one control that is not on the iPod, because the original anti-goal (a gate that blocks the site) still stands.
 - Looks: the iPod is one of the two glowing objects (with the computer). The click wheel sound or tick is optional and the builder's call; the audio engine's mute rules still apply.
 
 ### The computer: the real Premonition
@@ -155,7 +166,7 @@ What it is (my call where marked):
 ### What this changes in the first build
 
 - `src/demo/` (BootSequence, DawScreen, PremonitionDemo, machine, useRenderedAudio) is replaced or heavily reworked; its tests change with it. The "pre-rendered placeholder risers" path and the `placeholder: true` rendered sounds go away. The tracks on the iPod remain placeholders until real masters are supplied.
-- `src/room/Hud.tsx` loses its three buttons and keeps Skip to site. The click on the iPod now opens the iPod UI instead of advancing a track.
+- `src/room/Hud.tsx` loses its three buttons; the floating proximity prompts (see "Interaction prompt and zoom") replace them, and Skip to site moves to the top-right. Pressing E (or clicking) at the iPod eases the camera to the iPod and opens the iPod UI instead of advancing a track.
 - `src/room/RoomGate.tsx` and the `room:left` session flag change: Skip or Leave hides the opener only until the next page load. The opener becomes opaque and full screen, with the home content still present in the HTML.
 - Loading budget: the original ceiling (about 2 MB gzipped for room code plus audio, with no room chunk on any route) still applies to the room. The WebAssembly module and its worker load only after the visitor sits down at the computer and are budgeted separately; the builder measures and proposes a number (my call: aim for the WASM plus UI under about 1.5 MB gzipped). `npm run budget` and its tests extend to cover this.
 - The room-readiness timing test still applies; add a timing check that a short clip renders under throttling within a soft limit.
