@@ -4,10 +4,10 @@
 import * as THREE from 'three';
 import { ROOM_COLORS } from './palette';
 import { normalizeYaw } from './movement';
-import { SPEAKERS, START, ROOM_HEIGHT, GUITAR_ACOUSTIC, GUITAR_ELECTRIC, aimYaw, DESK, KEYBOARD_STAND, SPEAKER_LEFT, SPEAKER_RIGHT, IPOD_POS, COMPUTER_POS } from './layout';
+import { SPEAKERS, START, ROOM_HEIGHT, GUITAR_ACOUSTIC, GUITAR_ELECTRIC, LIGHT_SWITCH, aimYaw, DESK, KEYBOARD_STAND, SPEAKER_LEFT, SPEAKER_RIGHT, IPOD_POS, COMPUTER_POS } from './layout';
 import {
   Kit, makeMaterials, addShell, addSlatWall, addDesk, addKeyboardStand, addSpeaker, addWindow, addShelves, addPlant,
-  addGuitar, addElectricGuitar, addClock, addPosters, addRug, addChair, addDeskLamp, addKeyboard88, addIpodCable, addHeadphones, type V3,
+  addGuitar, addElectricGuitar, addDoor, addLightSwitch, addClock, addPosters, addRug, addChair, addDeskLamp, addKeyboard88, addIpodCable, addHeadphones, type V3,
 } from './furniture';
 
 export type Room = {
@@ -23,6 +23,13 @@ export type Room = {
   electric: THREE.Object3D;
   /** The 88-key keyboard; userData.interactive for picking. */
   piano: THREE.Object3D;
+  /** The door (E leaves the room), the desk lamp and the wall switch; each has userData.interactive. */
+  door: THREE.Object3D;
+  lamp: THREE.Object3D;
+  lightSwitch: THREE.Object3D;
+  /** Flip the desk lamp (bulb, light and the wall switch lever). Returns whether it is now on. */
+  toggleLamp(): boolean;
+  readonly lampOn: boolean;
   speakers: [THREE.Object3D, THREE.Object3D];
   /** The turning cabinet of each speaker (left, right); updateRoom aims them. */
   cabinets: [THREE.Object3D, THREE.Object3D];
@@ -114,6 +121,31 @@ function addComputer(k: Kit, g: THREE.Object3D): THREE.Object3D {
   // Keyboard on the mat in front.
   k.box(pc, keys, [0, 0.012, 0.25], [0.42, 0.024, 0.14], [0.06, 0, 0]);
   k.box(pc, bezel, [0, 0.026, 0.25], [0.39, 0.006, 0.11], [0.06, 0, 0]);
+  // Mouse to the right of the keyboard: a boxy beige body, two buttons, and a wire back to the computer.
+  const mouse = new THREE.Group();
+  mouse.name = 'computer-mouse';
+  mouse.position.set(0.31, 0, 0.27);
+  mouse.rotation.y = 0.12;
+  pc.add(mouse);
+  k.box(mouse, shell, [0, 0.013, 0], [0.058, 0.026, 0.098]);
+  k.box(mouse, shell, [0, 0.03, 0.004], [0.05, 0.012, 0.08]);
+  k.box(mouse, bezel, [0, 0.0365, -0.02], [0.002, 0.001, 0.036]); // the gap between the two buttons
+  k.box(mouse, bezel, [0, 0.0365, -0.0385], [0.05, 0.001, 0.002]); // where the buttons end
+  const wire = new THREE.CatmullRomCurve3(
+    [
+      new THREE.Vector3(0.31, 0.012, 0.221),
+      new THREE.Vector3(0.31, 0.006, 0.17),
+      new THREE.Vector3(0.26, 0.005, 0.13),
+      new THREE.Vector3(0.17, 0.006, 0.12),
+      new THREE.Vector3(0.1, 0.016, 0.09),
+      new THREE.Vector3(0.08, 0.03, 0.01),
+    ],
+    false,
+    'centripetal',
+  );
+  const wireGeo = new THREE.TubeGeometry(wire, 40, 0.0025, 5, false);
+  k.geometries.add(wireGeo);
+  pc.add(new THREE.Mesh(wireGeo, bezel));
   return pc;
 }
 
@@ -152,6 +184,7 @@ export function buildRoom(): Room {
   group.name = 'room';
 
   addShell(k, group, m, ROOM_HEIGHT);
+  const door = addDoor(k, group, m);
   addSlatWall(k, group, m, ROOM_HEIGHT);
   addDesk(k, group, m, DESK, DESK_TOP);
   addKeyboardStand(k, group, m, KEYBOARD_STAND);
@@ -188,6 +221,17 @@ export function buildRoom(): Room {
   lamp.name = 'lamp-light';
   lamp.position.copy(bulb);
   group.add(lamp);
+  const lightSwitch = addLightSwitch(k, group, m, [LIGHT_SWITCH.x - 0.006, LIGHT_SWITCH.y, LIGHT_SWITCH.z]);
+  const lampGroup = group.getObjectByName('desk-lamp')!;
+  const bulbMat = m.lampBulb;
+  const LAMP_INTENSITY = 3.6;
+  let lampOn = true;
+  const applyLamp = () => {
+    lamp.visible = lampOn;
+    lamp.intensity = lampOn ? LAMP_INTENSITY : 0;
+    bulbMat.emissiveIntensity = lampOn ? 0.5 : 0;
+    lightSwitch.setOn(lampOn);
+  };
   const fill = new THREE.HemisphereLight(0xb89a82, 0x7a4c30, 5.4);
   fill.name = 'fill-light';
   group.add(fill);
@@ -202,6 +246,17 @@ export function buildRoom(): Room {
     acoustic,
     electric,
     piano,
+    door,
+    lamp: lampGroup,
+    lightSwitch: lightSwitch.group,
+    toggleLamp() {
+      lampOn = !lampOn;
+      applyLamp();
+      return lampOn;
+    },
+    get lampOn() {
+      return lampOn;
+    },
     speakers,
     cabinets,
     triangleCount: countTriangles(group),

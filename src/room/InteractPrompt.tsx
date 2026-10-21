@@ -4,7 +4,7 @@ import type { Ref } from 'react';
 import { ROOM } from '@/content/copy';
 import styles from './room.module.css';
 
-export type PromptTarget = 'ipod' | 'computer' | 'acoustic' | 'electric' | 'piano';
+export type PromptTarget = 'ipod' | 'computer' | 'acoustic' | 'electric' | 'piano' | 'door' | 'lamp' | 'switch';
 
 const LABELS: Record<PromptTarget, string> = {
   ipod: ROOM.promptIpodLabel,
@@ -12,6 +12,19 @@ const LABELS: Record<PromptTarget, string> = {
   acoustic: ROOM.promptAcousticLabel,
   electric: ROOM.promptElectricLabel,
   piano: ROOM.promptPianoLabel,
+  door: ROOM.promptDoorLabel,
+  lamp: ROOM.promptLampLabel,
+  switch: ROOM.promptSwitchLabel,
+};
+
+// What the floating label says; the iPod and computer keep the general wording.
+const TEXTS: Partial<Record<PromptTarget, string>> = {
+  acoustic: 'Press E to strum',
+  electric: 'Press E to strum',
+  piano: 'Press E to play',
+  door: 'Press E to leave',
+  lamp: 'Press E for the lamp',
+  switch: 'Press E for the lamp',
 };
 
 // The floating "Press E to interact" label that sits next to the iPod or the
@@ -41,7 +54,7 @@ export function InteractPrompt({
       <span className={styles.promptKey} aria-hidden="true">
         E
       </span>
-      <span className={styles.promptText}>{ROOM.promptText}</span>
+      <span className={styles.promptText}>{TEXTS[target] ?? ROOM.promptText}</span>
     </button>
   );
 }

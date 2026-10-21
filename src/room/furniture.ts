@@ -94,7 +94,7 @@ export class Kit {
         -w, l * 0.42, -w * 0.15, // 1 left shoulder
         w, l * 0.42, -w * 0.15, // 2 right shoulder
         0, l, l * droop * -1, // 3 tip, drooping away
-        0, l * 0.42, w * 0.35, // 4 raised mid-rib
+        0, l * 0.42, w * 0.16, // 4 raised mid-rib
         -w * 0.55, l * 0.78, -l * droop * 0.45, // 5 left upper edge
         w * 0.55, l * 0.78, -l * droop * 0.45, // 6 right upper edge
       ];
@@ -150,8 +150,8 @@ export function makeMaterials(k: Kit) {
     book2: k.mat(0x3c4a52),
     book3: k.mat(0x6a5a44),
     guitarBody: k.mat(0xa05f2c, { roughness: 0.6 }),
-    leaf: k.mat(C.sage, { side: THREE.DoubleSide }),
-    leafDark: k.mat(0x6a7d5c, { side: THREE.DoubleSide }),
+    leaf: k.mat(C.sage, { side: THREE.DoubleSide, emissive: 0x2c3822, emissiveIntensity: 0.6 }),
+    leafDark: k.mat(0x6a7d5c, { side: THREE.DoubleSide, emissive: 0x232d1b, emissiveIntensity: 0.6 }),
     soil: k.mat(0x2a1d16),
     // Ibanez RGA42AH: black stained ash, jatoba board, black hardware.
     eAsh: k.mat(0x5d6063, { roughness: 0.85, emissive: 0x30363a, emissiveIntensity: 0.7 }),
@@ -196,9 +196,42 @@ export function addShell(k: Kit, g: THREE.Object3D, m: Mats, H: number) {
   k.span(g, m.black, [-2, 0, -3], [-1.98, 0.08, 3]);
   k.span(g, m.black, [1.98, 0, -3], [2, 0.08, 3]);
   k.span(g, m.black, [-2, 0, 2.98], [2, 0.08, 3]);
-  // Door at the viewer's end.
-  k.span(g, m.walnutDark, [-0.45, 0, 2.97], [0.45, 2.05, 3]);
-  k.box(g, m.black, [0.33, 1.0, 2.955], [0.1, 0.025, 0.03]);
+}
+
+/** The door at the viewer's end. Pressing E on it leaves the room for the site. */
+export function addDoor(k: Kit, g: THREE.Object3D, m: Mats): THREE.Group {
+  const d = new THREE.Group();
+  d.name = 'door';
+  d.userData = { interactive: 'door' };
+  g.add(d);
+  k.span(d, m.walnutDark, [-0.45, 0, 2.97], [0.45, 2.05, 3]);
+  k.box(d, m.black, [0.33, 1.0, 2.955], [0.1, 0.025, 0.03]);
+  k.box(d, m.black, [0.36, 1.0, 2.935], [0.025, 0.07, 0.025]); // the knob
+  return d;
+}
+
+/**
+ * A wall light switch for the desk lamp on the right wall: an off-white plate with
+ * a lever that flips. setOn(true) puts the lever up.
+ */
+export function addLightSwitch(k: Kit, g: THREE.Object3D, m: Mats, pos: V3): { group: THREE.Group; setOn(on: boolean): void } {
+  const sw = new THREE.Group();
+  sw.name = 'light-switch';
+  sw.userData = { interactive: 'switch' };
+  sw.position.set(...pos);
+  sw.rotation.y = -HALF_PI; // faces into the room from the right wall
+  g.add(sw);
+  k.box(sw, m.keyWhite, [0, 0, 0.006], [0.08, 0.125, 0.012]);
+  k.box(sw, m.keyCase, [0, 0, 0.0135], [0.034, 0.06, 0.003]); // the slot
+  const lever = new THREE.Group();
+  lever.position.set(0, 0, 0.016);
+  sw.add(lever);
+  k.box(lever, m.eBlack, [0, 0, 0.006], [0.018, 0.034, 0.012]);
+  const setOn = (on: boolean) => {
+    lever.rotation.x = on ? 0.45 : -0.45;
+  };
+  setOn(true);
+  return { group: sw, setOn };
 }
 
 /** Tall walnut slats on the far wall behind the desk. */
@@ -312,8 +345,8 @@ export function addPlant(k: Kit, g: THREE.Object3D, m: Mats, base: V3, s: number
   p.scale.setScalar(s);
   g.add(p);
   k.cyl(p, m.pot, 0.1, 0.07, 0.15, 12, [0, 0.075, 0]);
-  k.cyl(p, m.pot, 0.108, 0.108, 0.02, 12, [0, 0.155, 0]); // rim
-  k.cyl(p, m.soil, 0.092, 0.092, 0.01, 12, [0, 0.16, 0]);
+  k.cyl(p, m.pot, 0.108, 0.108, 0.016, 12, [0, 0.15, 0]); // rim, its top 0.158
+  k.cyl(p, m.soil, 0.092, 0.092, 0.01, 12, [0, 0.163, 0]); // soil, its top clear above the rim so the two never share a plane
   // Leaves leave the soil at spread angles around the pot, each leaning out and drooping.
   // [heading, lean, length, width, height of the stem top]
   const blades: [number, number, number, number, number][] = [
@@ -331,7 +364,7 @@ export function addPlant(k: Kit, g: THREE.Object3D, m: Mats, base: V3, s: number
     stem.position.set(Math.sin(heading) * 0.015, 0.16, Math.cos(heading) * 0.015);
     stem.rotation.set(0, heading, 0);
     p.add(stem);
-    k.cyl(stem, m.leafDark, 0.004, 0.005, h, 5, [0, h / 2, 0.012 * lean * 4], [lean * 0.5, 0, 0]);
+    k.cyl(stem, m.leaf, 0.006, 0.007, h, 5, [0, h / 2, 0.012 * lean * 4], [lean * 0.5, 0, 0]);
     // A blade rises from the stem top; pitch leans it outward (+z before heading).
     k.leaf(stem, i % 2 ? m.leafDark : m.leaf, len, wid, [0, h, h * lean * 0.5], [lean, 0, 0], 0.22);
   });
@@ -561,6 +594,8 @@ export function addChair(k: Kit, g: THREE.Object3D, m: Mats, x: number, z: numbe
 /** Small desk lamp; returns the bulb position for the room's single point light. */
 export function addDeskLamp(k: Kit, g: THREE.Object3D, m: Mats, x: number, z: number, top: number, yaw = 0): THREE.Vector3 {
   const l = new THREE.Group();
+  l.name = 'desk-lamp';
+  l.userData = { interactive: 'lamp' };
   l.position.set(x, top, z);
   l.rotation.y = yaw;
   g.add(l);

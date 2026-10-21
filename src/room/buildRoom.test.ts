@@ -329,4 +329,31 @@ describe('buildRoom', () => {
     expect(r.cabinets.map((c) => c.name)).toEqual(['speaker-left-cabinet', 'speaker-right-cabinet']);
     for (const c of r.cabinets) expect(r.group.getObjectById(c.id)).toBe(c);
   });
+
+  it('has a door that leaves the room, and a desk lamp and wall switch that both flip the lamp', () => {
+    const r = make();
+    expect(r.door.userData.interactive).toBe('door');
+    expect(r.lamp.userData.interactive).toBe('lamp');
+    expect(r.lightSwitch.userData.interactive).toBe('switch');
+    for (const o of [r.door, r.lamp, r.lightSwitch]) expect(meshes(o).length).toBeGreaterThan(0);
+    for (const m of meshes(r.lamp)) expect(interactiveOf(m)).toBe('lamp');
+  });
+
+  it('toggleLamp turns the light, the bulb glow and the switch lever off and back on', () => {
+    const r = make();
+    const light = r.group.getObjectByName('lamp-light') as THREE.PointLight;
+    const bulb = meshes(r.lamp).map((m) => m.material as THREE.MeshStandardMaterial).find((m) => m.color.getHex() === 0xe9a85f)!;
+    expect(r.lampOn).toBe(true);
+    expect(light.visible).toBe(true);
+    expect(bulb.emissiveIntensity).toBeGreaterThan(0);
+    expect(r.toggleLamp()).toBe(false);
+    expect(r.lampOn).toBe(false);
+    expect(light.visible).toBe(false);
+    expect(light.intensity).toBe(0);
+    expect(bulb.emissiveIntensity).toBe(0);
+    expect(r.toggleLamp()).toBe(true);
+    expect(light.visible).toBe(true);
+    expect(light.intensity).toBeGreaterThan(0);
+    expect(bulb.emissiveIntensity).toBeGreaterThan(0);
+  });
 });

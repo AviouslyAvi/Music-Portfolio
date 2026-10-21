@@ -86,14 +86,14 @@ function prefersReducedMotion(): boolean {
 function interactableOf(o: THREE.Object3D | null): Interactable | null {
   for (let n = o; n; n = n.parent) {
     const t = n.userData?.interactive;
-    if (t === 'ipod' || t === 'computer' || t === 'acoustic' || t === 'electric' || t === 'piano') return t;
+    if (t === 'ipod' || t === 'computer' || t === 'acoustic' || t === 'electric' || t === 'piano' || t === 'door' || t === 'lamp' || t === 'switch') return t;
   }
   return null;
 }
 
 function inClickRange(p: PlayerState['pos'], t: Interactable): boolean {
   const target = interactablePos(t);
-  return Math.hypot(p.x - target.x, p.z - target.z) <= (t === 'acoustic' || t === 'electric' || t === 'piano' ? GUITAR_RADIUS * 1.5 : CLICK_RANGE);
+  return Math.hypot(p.x - target.x, p.z - target.z) <= (t === 'ipod' || t === 'computer' ? CLICK_RANGE : GUITAR_RADIUS * 1.5);
 }
 
 const NO_FAILURES: string[] = [];
@@ -134,6 +134,9 @@ export default function RoomExperience({
   const acousticPromptRef = useRef<HTMLButtonElement>(null);
   const electricPromptRef = useRef<HTMLButtonElement>(null);
   const pianoPromptRef = useRef<HTMLButtonElement>(null);
+  const doorPromptRef = useRef<HTMLButtonElement>(null);
+  const lampPromptRef = useRef<HTMLButtonElement>(null);
+  const switchPromptRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [trackIndex, setTrackIndex] = useState(0);
@@ -256,6 +259,7 @@ export default function RoomExperience({
       let lastPlaying = false;
       let lastVolume = DEFAULT_VOLUME;
       let lastClock = { position: 0, duration: 0 };
+      wrap.dataset.lamp = 'on';
       // Where each floating prompt hangs: just above the object, in world space.
       built.group.updateMatrixWorld(true);
       const anchorOf = (o: THREE.Object3D) => {
@@ -268,6 +272,9 @@ export default function RoomExperience({
       const acousticAnchor = anchorOf(built.acoustic);
       const electricAnchor = anchorOf(built.electric);
       const pianoAnchor = anchorOf(built.piano);
+      const doorAnchor = new THREE.Vector3(0.3, 1.35, 2.9); // at the handle, not the top of the door
+      const lampAnchor = anchorOf(built.lamp);
+      const switchAnchor = anchorOf(built.lightSwitch);
       // A strummed guitar shivers on its hook for a moment.
       const wobble: Record<'acoustic' | 'electric', number> = { acoustic: -1, electric: -1 };
       const projected = new THREE.Vector3();
@@ -349,6 +356,16 @@ export default function RoomExperience({
       };
       const interact = (t: Interactable) => {
         if (mode !== 'walk') return;
+        if (t === 'door') {
+          // The door at the back of the room leads out to the site, the same as Skip.
+          leaveRef.current();
+          return;
+        }
+        if (t === 'lamp' || t === 'switch') {
+          built.toggleLamp();
+          wrap.dataset.lamp = built.lampOn ? 'on' : 'off';
+          return;
+        }
         if (t === 'acoustic' || t === 'electric' || t === 'piano') {
           // Strumming or playing happens where the visitor stands; the camera does not move.
           audioRef.current?.guitar?.strum(t);
@@ -409,7 +426,7 @@ export default function RoomExperience({
           ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
         }
         raycaster.setFromCamera(ndc, camera);
-        const hit = raycaster.intersectObjects([built.ipod, built.computer, built.acoustic, built.electric, built.piano], true)[0];
+        const hit = raycaster.intersectObjects([built.ipod, built.computer, built.acoustic, built.electric, built.piano, built.door, built.lamp, built.lightSwitch], true)[0];
         return hit ? interactableOf(hit.object) : null;
       };
       const look = (dx: number, dy: number) => {
@@ -571,6 +588,9 @@ export default function RoomExperience({
           placePrompt(acousticPromptRef.current, acousticAnchor, near === 'acoustic');
           placePrompt(electricPromptRef.current, electricAnchor, near === 'electric');
           placePrompt(pianoPromptRef.current, pianoAnchor, near === 'piano');
+          placePrompt(doorPromptRef.current, doorAnchor, near === 'door');
+          placePrompt(lampPromptRef.current, lampAnchor, near === 'lamp');
+          placePrompt(switchPromptRef.current, switchAnchor, near === 'switch');
           for (const [kind, obj] of [['acoustic', built.acoustic], ['electric', built.electric]] as const) {
             const base = (obj.userData.baseRotZ as number) ?? 0;
             const age = wobble[kind] < 0 ? Infinity : (now - wobble[kind]) / 1000;
@@ -748,6 +768,9 @@ export default function RoomExperience({
         <InteractPrompt ref={acousticPromptRef} target="acoustic" onActivate={() => onInteract('acoustic')} />
         <InteractPrompt ref={electricPromptRef} target="electric" onActivate={() => onInteract('electric')} />
         <InteractPrompt ref={pianoPromptRef} target="piano" onActivate={() => onInteract('piano')} />
+        <InteractPrompt ref={doorPromptRef} target="door" onActivate={() => onInteract('door')} />
+        <InteractPrompt ref={lampPromptRef} target="lamp" onActivate={() => onInteract('lamp')} />
+        <InteractPrompt ref={switchPromptRef} target="switch" onActivate={() => onInteract('switch')} />
       </div>
       <Hud
         trackTitle={playing ? title : ''}

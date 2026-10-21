@@ -42,6 +42,10 @@ vi.mock('./buildRoom', async (orig) => {
       acoustic: new THREE.Group(),
       electric: new THREE.Group(),
       piano: new THREE.Group(),
+      door: new THREE.Group(),
+      lamp: new THREE.Group(),
+      lightSwitch: new THREE.Group(),
+      toggleLamp: () => true,
       dispose() {},
     }),
   };

@@ -36,7 +36,7 @@ export const SOLIDS: Box[] = [DESK, SPEAKER_LEFT, SPEAKER_RIGHT, KEYBOARD_STAND]
 export const START: PlayerState = { pos: { x: 0, z: 2.2 }, yaw: 0 };
 
 // Points on the desk surface.
-export type Interactable = 'ipod' | 'computer' | 'acoustic' | 'electric' | 'piano';
+export type Interactable = 'ipod' | 'computer' | 'acoustic' | 'electric' | 'piano' | 'door' | 'lamp' | 'switch';
 
 export const IPOD_POS: Vec2 = { x: -0.4, z: -2.7 };
 export const COMPUTER_POS: Vec2 = { x: 0, z: -2.7 }; // the middle of the desk
@@ -52,6 +52,12 @@ export const GUITAR_ACOUSTIC: Vec3 = { x: -1.95, y: 1.3, z: -1.4 };
 export const GUITAR_ELECTRIC: Vec3 = { x: -1.94, y: 1.35, z: -0.55 };
 /** The keyboard on its stand: the middle of its footprint, at key height. Its sound comes from here. */
 export const PIANO: Vec3 = { x: (KEYBOARD_STAND.minX + KEYBOARD_STAND.maxX) / 2, y: 0.95, z: (KEYBOARD_STAND.minZ + KEYBOARD_STAND.maxZ) / 2 };
+/** The door in the near wall: press E to leave the room for the site. */
+export const DOOR: Vec3 = { x: 0, y: 1.0, z: 3 };
+/** The desk lamp's base. */
+export const LAMP_POS: Vec3 = { x: 0.56, y: 0.77, z: -2.7 };
+/** The wall light switch, on the right wall beside the poster. */
+export const LIGHT_SWITCH: Vec3 = { x: 2, y: 1.25, z: 2.3 };
 /** How close a visitor must stand to strum a wall guitar or play the keyboard. */
 export const GUITAR_RADIUS = 1.3;
 
@@ -60,10 +66,13 @@ export function interactablePos(t: Interactable): Vec2 {
   if (t === 'ipod') return IPOD_POS;
   if (t === 'computer') return COMPUTER_POS;
   if (t === 'piano') return PIANO;
+  if (t === 'door') return DOOR;
+  if (t === 'lamp') return LAMP_POS;
+  if (t === 'switch') return LIGHT_SWITCH;
   return t === 'acoustic' ? GUITAR_ACOUSTIC : GUITAR_ELECTRIC;
 }
 
-/** Closest interactable within reach. An exact tie goes to the earlier of ipod, computer, acoustic, electric, piano. */
+/** Closest interactable within reach. An exact tie goes to the earlier in the list below. */
 export function nearestInteractable(p: Vec2): Interactable | null {
   const reach: Array<[Interactable, number]> = [
     ['ipod', INTERACT_RADIUS],
@@ -71,6 +80,9 @@ export function nearestInteractable(p: Vec2): Interactable | null {
     ['acoustic', GUITAR_RADIUS],
     ['electric', GUITAR_RADIUS],
     ['piano', GUITAR_RADIUS],
+    ['door', GUITAR_RADIUS],
+    ['lamp', 1.0],
+    ['switch', GUITAR_RADIUS],
   ];
   let best: Interactable | null = null;
   let bestD = Infinity;

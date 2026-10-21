@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as L from './layout';
 import {
-  GUITAR_ACOUSTIC, GUITAR_ELECTRIC, GUITAR_RADIUS, PIANO, ROOM_BOUNDS, SOLIDS, START, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable,
+  GUITAR_ACOUSTIC, GUITAR_ELECTRIC, GUITAR_RADIUS, PIANO, DOOR, LAMP_POS, LIGHT_SWITCH, ROOM_BOUNDS, SOLIDS, START, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable,
   DESK, SPEAKER_LEFT, SPEAKER_RIGHT, KEYBOARD_STAND, SPEAKERS, TWEETER_Y, SEAT_POSE, aimYaw,
 } from './layout';
 import type { Box } from './movement';
@@ -42,9 +42,9 @@ describe('layout', () => {
   it('nearestInteractable picks ipod, computer, or null', () => {
     expect(nearestInteractable(IPOD_POS)).toBe('ipod');
     expect(nearestInteractable(COMPUTER_POS)).toBe('computer');
-    expect(nearestInteractable(START.pos)).toBeNull();
+    expect(nearestInteractable({ x: 0.5, z: 0.5 })).toBeNull(); // the start is beside the door now
     expect(nearestInteractable({ x: -0.6, z: -2.1 })).toBe('ipod');
-    expect(nearestInteractable({ x: 0.8, z: -2.1 })).toBe('computer');
+    expect(nearestInteractable({ x: 0.1, z: -2.1 })).toBe('computer');
   });
   it('an exact tie goes to the ipod', () => {
     const mid = { x: (IPOD_POS.x + COMPUTER_POS.x) / 2, z: -2.1 };
@@ -199,5 +199,25 @@ describe('keyboard', () => {
   it('sits in the middle of its stand', () => {
     expect(PIANO.x).toBeCloseTo(-1.825);
     expect(PIANO.z).toBeCloseTo(-2.35);
+  });
+});
+
+describe('door, lamp and light switch', () => {
+  it('the door can be used from just inside it, including where the visitor starts', () => {
+    expect(nearestInteractable({ x: 0, z: 2.5 })).toBe('door');
+    expect(nearestInteractable(START.pos)).toBe('door');
+    expect(DOOR.z).toBe(3);
+  });
+
+  it('the switch can be reached from the lane beside the right wall', () => {
+    expect(nearestInteractable({ x: 1.6, z: LIGHT_SWITCH.z })).toBe('switch');
+  });
+
+  it('the lamp can be used from beside it, where the computer or iPod are not nearer', () => {
+    expect(nearestInteractable({ x: LAMP_POS.x + 0.1, z: -2.1 })).toBe('lamp');
+  });
+
+  it('the lamp, switch and door are out of reach from the middle of the room', () => {
+    expect(nearestInteractable({ x: 0.5, z: 0.5 })).toBeNull();
   });
 });
