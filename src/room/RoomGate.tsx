@@ -27,7 +27,7 @@ function FailOnMount({ onFail }: RoomProps) {
 }
 
 // The room chunk (three.js included) is only fetched once this renders,
-// which happens after the visitor clicks Enter. A failed fetch becomes a
+// which happens as the site opens. A failed fetch becomes a
 // normal room failure instead of an application error.
 const RoomExperience = dynamic<RoomProps>(() => import('./RoomExperience').then((m) => m.default, () => FailOnMount), {
   ssr: false,
@@ -53,7 +53,7 @@ class RoomBoundary extends Component<{ onError: () => void; children: ReactNode 
 }
 
 const LEFT_KEY = 'room:left';
-type GateState = 'checking' | 'unavailable' | 'offering' | 'room' | 'left';
+type GateState = 'checking' | 'unavailable' | 'room' | 'left';
 
 // A failure is not persisted (it may be transient), but the room is not offered
 // again during this page view.
@@ -128,9 +128,22 @@ export function RoomGate() {
   const [audioFailures, setAudioFailures] = useState<string[]>([]);
   const audioRef = useRef<RoomAudio | null>(null);
   const enteredRef = useRef(false);
-  const enterBtn = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const restoreFocus = useRef(false);
+
+  // The site opens straight into the room: no entry card, and the portfolio stays
+  // hidden behind it until the visitor leaves (the door, or Skip to site). The
+  // audio context starts suspended and wakes at the visitor's first press of play
+  // or strum, which is a gesture, so nothing sounds before they act.
+  const enter = useCallback(() => {
+    if (enteredRef.current) return;
+    enteredRef.current = true;
+    track('room_entered');
+    const a = startAudio((id) => setAudioFailures((prev) => (prev.includes(id) ? prev : [...prev, id])));
+    audioRef.current = a;
+    setAudio(a);
+    setState('room');
+  }, []);
 
   useEffect(() => {
     let offer = false;
@@ -139,10 +152,11 @@ export function RoomGate() {
     } catch {
       offer = false;
     }
-    setState(offer ? 'offering' : 'unavailable');
-  }, []);
+    if (offer) enter();
+    else setState('unavailable');
+  }, [enter]);
 
-  const active = state === 'offering' || state === 'room';
+  const active = state === 'room';
 
   // While the overlay or the room covers the page: lock scroll and make the
   // site behind it (nav, main, footer) inert, so Tab and assistive tech stay
@@ -172,40 +186,15 @@ export function RoomGate() {
     document.getElementById('main')?.focus();
   }, [state]);
 
-  const skip = useCallback(() => {
-    writeLeft();
-    restoreFocus.current = true;
-    setState('left');
-  }, []);
-
-  useEffect(() => {
-    if (state !== 'offering') return;
-    enterBtn.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') skip();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [state, skip]);
-
   // Release audio if the gate itself unmounts (route change while in the room).
   useEffect(
     () => () => {
       stopAudio(audioRef.current);
       audioRef.current = null;
+      enteredRef.current = false; // React's dev double-mount must be able to open the room again
     },
     [],
   );
-
-  const enter = useCallback(() => {
-    if (enteredRef.current) return;
-    enteredRef.current = true;
-    track('room_entered');
-    const a = startAudio((id) => setAudioFailures((prev) => (prev.includes(id) ? prev : [...prev, id])));
-    audioRef.current = a;
-    setAudio(a);
-    setState('room');
-  }, []);
 
   const finish = useCallback((persist: boolean) => {
     if (persist) writeLeft();
@@ -220,24 +209,9 @@ export function RoomGate() {
   const onLeave = useCallback(() => finish(true), [finish]);
   const onFail = useCallback(() => finish(false), [finish]);
 
-  if (state === 'offering') {
-    return (
-      <div ref={rootRef} className={styles.gate} role="dialog" aria-modal="true" aria-label={ROOM.enterLabel}>
-        <div className={styles.gateCard}>
-          <p className={styles.eyebrow}>{ROOM.enterEyebrow}</p>
-          <h2 className={styles.gateTitle}>{ROOM.enterTitle}</h2>
-          <p className={styles.gateBody}>{ROOM.enterBody}</p>
-          <div className={styles.gateActions}>
-            <button ref={enterBtn} type="button" className={`${styles.gateBtn} ${styles.gatePrimary}`} onClick={enter}>
-              {ROOM.enter}
-            </button>
-            <button type="button" className={styles.gateBtn} onClick={skip}>
-              {ROOM.skip}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+  if (state === 'checking') {
+    // Where the room will be offered, hide the portfolio from the first paint so it never flashes.
+    return <div className={styles.preCover} aria-hidden="true" />;
   }
   if (state === 'room') {
     return (

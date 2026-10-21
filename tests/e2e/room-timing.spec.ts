@@ -5,12 +5,8 @@ import { test, expect } from '@playwright/test';
 test('room is walkable under 4x CPU throttling (soft limit 15 s)', async ({ page }) => {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
-  await page.goto('/');
-  const enter = page.getByRole('dialog', { name: 'Enter the room' }).getByRole('button', { name: 'Enter' });
-  await expect(enter).toBeVisible({ timeout: 30_000 });
-
   const start = Date.now();
-  await enter.click();
+  await page.goto('/'); // the room opens as soon as the page does
   const canvas = page.getByTestId('room-canvas');
   await expect(canvas).toBeVisible({ timeout: 30_000 });
   await expect(canvas).toHaveAttribute('data-player-z', /\d/);

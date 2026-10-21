@@ -2,7 +2,6 @@ import { test, expect, devices, type Page, type Browser, type BrowserContextOpti
 import { KEYBOARD_STAND, DESK, IPOD_POS, COMPUTER_POS } from '../../src/room/layout';
 import { PLAYER_RADIUS } from '../../src/room/movement';
 
-const ENTER_DIALOG = { name: 'Enter the room' };
 
 /** Records every JavaScript response that ships the three.js renderer. */
 function watchThree(page: Page) {
@@ -33,8 +32,7 @@ const canvas = (page: Page) => page.getByTestId('room-canvas');
 const attr = async (page: Page, name: string) => Number(await canvas(page).getAttribute(name));
 
 async function enterRoom(page: Page) {
-  await page.goto('/');
-  await page.getByRole('dialog', ENTER_DIALOG).getByRole('button', { name: 'Enter' }).click();
+  await page.goto('/'); // the site opens straight into the room
   await expect(canvas(page)).toBeVisible({ timeout: 20_000 });
   await expect(canvas(page)).toHaveAttribute('data-player-z', /\d/);
 }
@@ -72,25 +70,24 @@ async function openIpod(page: Page) {
 }
 
 test.describe('room gate', () => {
-  test('offers Enter and Skip, and loads no three.js before Enter', async ({ page }) => {
-    const three = watchThree(page);
-    await page.goto('/', { waitUntil: 'networkidle' });
-    const dialog = page.getByRole('dialog', ENTER_DIALOG);
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'Enter' })).toBeFocused();
-    await expect(dialog.getByRole('button', { name: 'Skip' })).toBeVisible();
-    expect(await three.settled()).toEqual([]);
+  test('the site opens straight into the room, with no entry card and the portfolio locked behind it', async ({ page }) => {
+    await page.goto('/');
+    await expect(canvas(page)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('dialog', { name: 'Enter the room' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Enter' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Skip to site' })).toBeVisible();
   });
 
-  test('Skip reveals the normal home and never requests the room', async ({ page }) => {
-    const three = watchThree(page);
-    await page.goto('/');
-    await page.getByRole('dialog', ENTER_DIALOG).getByRole('button', { name: 'Skip' }).click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+  test('Skip to site reveals the normal home, and a reload does not reopen the room', async ({ page }) => {
+    await enterRoom(page);
+    await page.getByRole('button', { name: 'Skip to site' }).click();
+    await expect(canvas(page)).toHaveCount(0);
     await expect(page.locator('h1')).toBeVisible();
     expect(await page.evaluate(() => sessionStorage.getItem('room:left'))).toBe('1');
+    const three = watchThree(page);
     await page.reload({ waitUntil: 'networkidle' });
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(canvas(page)).toHaveCount(0);
+    await expect(page.locator('h1')).toBeVisible();
     expect(await three.settled()).toEqual([]);
   });
 
@@ -106,19 +103,6 @@ test.describe('focus stays in the dialogs', () => {
     page.evaluate(() => Boolean(document.querySelector('nav[aria-label="Primary"]')?.closest('[inert]')));
   const focusIn = (page: Page, sel: string) =>
     page.evaluate((s) => Boolean(document.activeElement?.closest(s)), sel);
-
-  test('Tab never reaches the site behind the Enter overlay; Skip restores it', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('dialog', ENTER_DIALOG)).toBeVisible();
-    expect(await navInert(page)).toBe(true);
-    for (let i = 0; i < 6; i++) {
-      await page.keyboard.press('Tab');
-      expect(await focusIn(page, 'nav, #main, footer')).toBe(false);
-    }
-    await page.getByRole('dialog', ENTER_DIALOG).getByRole('button', { name: 'Skip' }).click();
-    await expect.poll(() => navInert(page)).toBe(false);
-    await expect(page.locator('#main')).toBeFocused();
-  });
 
   test('in the room the site behind is inert and Tab stays on the room controls', async ({ page }) => {
     await enterRoom(page);
@@ -207,24 +191,25 @@ test.describe('in the room', () => {
     expect(z).toBeLessThan(KEYBOARD_STAND.maxZ + PLAYER_RADIUS + 0.2);
   });
 
-  test('Escape steps back through the iPod menu, then puts the iPod down and the prompt returns', async ({ page }) => {
+  test('Escape puts the iPod down at once and the prompt returns', async ({ page }) => {
     await enterRoom(page);
     const ipod = await openIpod(page);
-    await page.keyboard.press('Escape');
-    await expect(ipod.getByRole('listbox', { name: 'Menu' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(ipod).toHaveCount(0, { timeout: 5_000 });
     await expect(promptOf(page, 'ipod')).toHaveAttribute('data-visible', 'true', { timeout: 10_000 });
   });
 
-  test('Leave the room from the iPod menu opens the site', async ({ page }) => {
+  test('the iPod menu is just Songs and Voice Memos', async ({ page }) => {
     await enterRoom(page);
     const ipod = await openIpod(page);
-    await page.keyboard.press('Escape');
-    for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('Enter');
+    await ipod.getByRole('button', { name: 'Menu' }).click();
+    await expect(ipod.getByRole('option')).toHaveText(['Songs', 'Voice Memos']);
+  });
+
+  test('the door at the back of the room leaves for the site', async ({ page }) => {
+    await enterRoom(page);
+    await page.keyboard.press('e'); // the visitor starts beside the door
     await expectSiteOpen(page);
-    await expect(ipod).toHaveCount(0);
   });
 
   /** The room is gone and the normal home is in front, with focus on #main. */
@@ -388,21 +373,15 @@ test.describe('in the room', () => {
 });
 
 test.describe('room failures land on the normal site', () => {
-  test('a setup failure (no WebGL context after Enter) unmounts the room', async ({ page }) => {
+  test('a setup failure (no WebGL context) leaves the normal home', async ({ page }) => {
     await page.addInitScript(() => {
       const orig = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, id: string, ...rest: unknown[]) {
-        if ((window as unknown as { __failGL?: boolean }).__failGL && /webgl/.test(id)) return null;
+        if (/webgl/.test(id)) return null;
         return (orig as (...a: unknown[]) => unknown).call(this, id, ...rest);
       } as typeof orig;
     });
     await page.goto('/');
-    const dialog = page.getByRole('dialog', ENTER_DIALOG);
-    await expect(dialog).toBeVisible();
-    await page.evaluate(() => {
-      (window as unknown as { __failGL?: boolean }).__failGL = true;
-    });
-    await dialog.getByRole('button', { name: 'Enter' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 20_000 });
     await expect(canvas(page)).toHaveCount(0);
     await expect(page.locator('canvas')).toHaveCount(0);
@@ -410,23 +389,9 @@ test.describe('room failures land on the normal site', () => {
     await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe('');
   });
 
-  test('a room chunk that fails to load leaves the normal home, not an error page', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'networkidle' });
-    const dialog = page.getByRole('dialog', ENTER_DIALOG);
-    await expect(dialog).toBeVisible();
-    // Everything already loaded; from here on only the room chunk is requested.
-    await page.route('**/_next/static/chunks/**', (route) => route.abort());
-    await dialog.getByRole('button', { name: 'Enter' }).click();
-    // The chunk loader retries before giving up; wait for the room layer to go.
-    await expect(page.getByText('Loading the room')).toHaveCount(0, { timeout: 20_000 });
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect
-      .poll(() => page.evaluate(() => Boolean(document.querySelector('nav[aria-label="Primary"]')?.closest('[inert]'))))
-      .toBe(false);
-    await expect(page.locator('h1')).toBeVisible();
-    await expect(page.locator('#main')).toBeFocused();
-    await expect(page.locator('body')).not.toContainText(/application error/i);
-  });
+  // The room now opens at page load, so a failing room chunk cannot be isolated from the app's own chunks here.
+  // It is covered by the RoomGate unit test 'a room chunk that fails to load falls back to the normal home'.
+
 
   test('webglcontextlost unmounts the room', async ({ page }) => {
     await enterRoom(page);
