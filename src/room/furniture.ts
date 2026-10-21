@@ -372,7 +372,7 @@ const KEYBOARD_LEN = WHITE_KEYS * KEYBOARD_KEY_W;
 
 /**
  * 88-key keyboard (A0 to C8) lying on its stand, long axis along z with the
- * keys facing +x. White and black keys are one merged mesh each.
+ * keys facing +x. The light keys and the dark keys are one merged mesh each.
  * userData.blackAfterWhite lists the white-key indices (0 = A0) a black key follows.
  */
 export function addKeyboard88(k: Kit, g: THREE.Object3D, m: Mats, stand: Box): THREE.Group {
@@ -389,24 +389,24 @@ export function addKeyboard88(k: Kit, g: THREE.Object3D, m: Mats, stand: Box): T
   k.box(kb, m.keyCase, [0, 0.075, -0.1], [caseW, 0.03, 0.1]);
   for (const sx of [-1, 1]) k.box(kb, m.keyCase, [sx * (caseW / 2 - 0.015), 0.07, 0.03], [0.03, 0.04, 0.24]);
 
-  const white: { pos: V3; size: V3 }[] = [];
-  const black: { pos: V3; size: V3 }[] = [];
+  const whiteBoxes: { pos: V3; size: V3 }[] = [];
+  const blackBoxes: { pos: V3; size: V3 }[] = [];
   const blackAfter: number[] = [];
   for (let i = 0; i < WHITE_KEYS; i++) {
     const x = -KEYBOARD_LEN / 2 + (i + 0.5) * KEYBOARD_KEY_W;
-    white.push({ pos: [x, 0.069, 0.05], size: [KEYBOARD_KEY_W - 0.0012, 0.018, 0.2] });
+    whiteBoxes.push({ pos: [x, 0.069, 0.05], size: [KEYBOARD_KEY_W - 0.0012, 0.018, 0.2] });
     if (i < WHITE_KEYS - 1 && !'BE'.includes('ABCDEFG'[i % 7])) {
       blackAfter.push(i);
-      black.push({ pos: [x + KEYBOARD_KEY_W / 2, 0.088, -0.0], size: [0.0135, 0.02, 0.12] });
+      blackBoxes.push({ pos: [x + KEYBOARD_KEY_W / 2, 0.088, -0.0], size: [0.0135, 0.02, 0.12] });
     }
   }
-  const wm = new THREE.Mesh(mergedBoxes(k, white), m.keyWhite);
+  const wm = new THREE.Mesh(mergedBoxes(k, whiteBoxes), m.keyWhite);
   wm.name = 'white-keys';
-  const bm = new THREE.Mesh(mergedBoxes(k, black), m.keyBlack);
+  const bm = new THREE.Mesh(mergedBoxes(k, blackBoxes), m.keyBlack);
   bm.name = 'black-keys';
   kb.add(wm, bm);
-  kb.userData.whiteKeys = white.length;
-  kb.userData.blackKeys = black.length;
+  kb.userData.whiteKeys = whiteBoxes.length;
+  kb.userData.blackKeys = blackBoxes.length;
   kb.userData.blackAfterWhite = blackAfter;
   return kb;
 }

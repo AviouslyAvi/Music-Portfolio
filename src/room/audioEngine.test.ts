@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TrackPlayer, isAudioUnavailable } from './audioEngine';
+import { SPEAKERS, TWEETER_Y, START } from './layout';
 import type { Track } from '@/content/tracks';
 
 class FakeParam {
@@ -112,9 +113,62 @@ describe('TrackPlayer', () => {
     expect(h.sources).toHaveLength(1);
     expect(h.sources[0].started).toBe(1);
     expect(h.panners).toHaveLength(2);
-    expect(h.panners.map((x) => x.positionX.value)).toEqual([-0.8, 1.8]);
-    expect(h.panners.every((x) => x.positionY.value === 1 && x.distanceModel === 'inverse' && x.refDistance === 1.5 && x.rolloffFactor === 1)).toBe(true);
+    expect(h.panners.every((x) => x.positionY.value === TWEETER_Y && x.distanceModel === 'inverse' && x.refDistance === 1.5 && x.rolloffFactor === 1)).toBe(true);
     expect(h.panners.every((x) => x.connected[0] === h.raw.destination)).toBe(true);
+  });
+
+  it('panners sit at SPEAKERS including y = TWEETER_Y', () => {
+    const h = makeCtx();
+    new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+    h.panners.forEach((pn, i) => {
+      expect([pn.positionX.value, pn.positionY.value, pn.positionZ.value]).toEqual([SPEAKERS[i].x, SPEAKERS[i].y, SPEAKERS[i].z]);
+    });
+    expect(TWEETER_Y).toBe(1.1);
+  });
+
+  /** Panner offset from the listener, projected on the listener's right vector (cos yaw, -sin yaw) and forward (-sin yaw, -cos yaw). */
+  function sides(h: ReturnType<typeof makeCtx>, p: TrackPlayer, x: number, z: number, yaw: number) {
+    p.setListenerPose(x, z, yaw);
+    const l = h.listener as unknown as Record<string, FakeParam>;
+    const f = { x: l.forwardX.value, z: l.forwardZ.value };
+    return h.panners.map((pn) => {
+      const dx = pn.positionX.value - x, dz = pn.positionZ.value - z;
+      return { right: dx * Math.cos(yaw) + dz * -Math.sin(yaw), ahead: dx * f.x + dz * f.z };
+    });
+  }
+
+  it('with the listener at START facing yaw 0 the left panner is to the left of the listener and the right panner to the right', () => {
+    const h = makeCtx();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+    const [left, right] = sides(h, p, START.pos.x, START.pos.z, 0);
+    expect(left.right).toBeLessThan(0);
+    expect(right.right).toBeGreaterThan(0);
+    expect(left.ahead).toBeGreaterThan(0);
+    expect(right.ahead).toBeGreaterThan(0);
+  });
+
+  it('the mapping rotates with the listener: at yaw PI/2 the left speaker is on the listener\'s right', () => {
+    const h = makeCtx();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+    // Facing -x from the room centre: the far wall (-z) is on the right hand.
+    const [left, right] = sides(h, p, 0, 0, Math.PI / 2);
+    expect(left.right).toBeGreaterThan(0);
+    expect(right.right).toBeGreaterThan(0);
+    expect(left.ahead).toBeGreaterThan(0); // left speaker (x -0.8) is ahead when facing -x
+    expect(right.ahead).toBeLessThan(0); // right speaker (x 1.8) is behind
+    // Turned right round (yaw PI, facing the door): the sides swap, left speaker now on the right.
+    const [l2, r2] = sides(h, p, 0, 0, Math.PI);
+    expect(l2.right).toBeGreaterThan(0);
+    expect(r2.right).toBeLessThan(0);
+  });
+
+  it('a listener standing on a speaker produces no NaN positions', () => {
+    const h = makeCtx();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+    p.setListenerPose(SPEAKERS[0].x, SPEAKERS[0].z, 0);
+    const l = h.listener as unknown as Record<string, FakeParam>;
+    for (const v of [l.positionX, l.positionY, l.positionZ, l.forwardX, l.forwardZ]) expect(Number.isFinite(v.value)).toBe(true);
+    for (const pn of h.panners) for (const v of [pn.positionX, pn.positionY, pn.positionZ]) expect(Number.isFinite(v.value)).toBe(true);
   });
 
   it('next() switches at once: old source cut, new one at full gain, no fade curves', async () => {

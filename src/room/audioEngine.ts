@@ -1,5 +1,5 @@
 import type { Track } from '@/content/tracks';
-import { SPEAKER_LEFT, SPEAKER_RIGHT } from './layout';
+import { SPEAKERS } from './layout';
 
 // Design decisions (each one is asserted in audioEngine.test.ts):
 //  a) Track changes are immediate: select(), step() and next() cut the old source
@@ -27,7 +27,6 @@ import { SPEAKER_LEFT, SPEAKER_RIGHT } from './layout';
 // positions -> out (the caller passes ctx.destination).
 
 export const DEFAULT_VOLUME = 0.8;
-const SPEAKER_HEIGHT = 1.0;
 
 /** Id reported through onError when the audio context could not be resumed. */
 export const AUDIO_CONTEXT_ERROR = 'audio-context';
@@ -51,10 +50,6 @@ export function isAudioUnavailable(
 
 type Live = { source: AudioBufferSourceNode; gain: GainNode };
 type FetchFn = (url: string) => Promise<{ ok: boolean; arrayBuffer(): Promise<ArrayBuffer> }>;
-
-function center(b: { minX: number; maxX: number; minZ: number; maxZ: number }) {
-  return { x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 };
-}
 
 export class TrackPlayer {
   private readonly master: GainNode;
@@ -85,8 +80,7 @@ export class TrackPlayer {
   ) {
     this.master = ctx.createGain();
     this.master.gain.value = DEFAULT_VOLUME;
-    for (const box of [SPEAKER_LEFT, SPEAKER_RIGHT]) {
-      const c = center(box);
+    for (const c of SPEAKERS) {
       const p = ctx.createPanner();
       p.panningModel = 'HRTF';
       p.distanceModel = 'inverse';
@@ -94,10 +88,10 @@ export class TrackPlayer {
       p.rolloffFactor = 1;
       if (p.positionX) {
         p.positionX.value = c.x;
-        p.positionY.value = SPEAKER_HEIGHT;
+        p.positionY.value = c.y;
         p.positionZ.value = c.z;
       } else {
-        p.setPosition(c.x, SPEAKER_HEIGHT, c.z);
+        p.setPosition(c.x, c.y, c.z);
       }
       this.master.connect(p);
       p.connect(out);
