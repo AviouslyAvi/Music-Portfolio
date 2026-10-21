@@ -75,24 +75,24 @@ function fakeAudio() {
 }
 
 let clock = 0;
-function frames(ms: number) {
+async function frames(ms: number) {
   const steps = Math.ceil(ms / 16);
   for (let i = 0; i < steps; i++) {
     clock += 16;
     const q = h.rafQueue.splice(0);
-    act(() => {
-      vi.advanceTimersByTime(16);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(16);
       q.forEach((cb) => cb(clock));
     });
   }
 }
 
-function setup(opts: { reduced?: boolean } = {}) {
+async function setup(opts: { reduced?: boolean } = {}) {
   const audio = fakeAudio();
   const navigate = vi.fn();
   const onLeave = vi.fn();
   render(<RoomExperience onLeave={onLeave} onFail={vi.fn()} audio={audio as never} navigate={navigate} />);
-  frames(32);
+  await frames(32);
   return { audio, navigate, onLeave, opts };
 }
 
@@ -100,12 +100,12 @@ const sit = () => {
   fireEvent.click(screen.getByRole('button', { name: /computer: press e/i }));
 };
 const stage = () => screen.getByRole('dialog', { name: /studio room/i }).getAttribute('data-stage');
-const toPlugin = () => {
+const toPlugin = async () => {
   sit();
-  frames(1500); // ease
-  frames(1000); // headphones
+  await frames(1500); // ease
+  await frames(1000); // headphones
   act(() => h.plugin!.onReady?.());
-  frames(3000); // terminal minimum
+  await frames(3000); // terminal minimum
 };
 const playAll = () => {
   for (const s of SOURCES) act(() => h.plugin!.onSoundPlayed(s.id));
@@ -147,57 +147,57 @@ afterEach(() => {
 });
 
 describe('RoomExperience sequence', () => {
-  it('E at the computer starts seating and holds the room audio once', () => {
-    const { audio } = setup();
+  it('E at the computer starts seating and holds the room audio once', async () => {
+    const { audio } = await setup();
     expect(stage()).toBe('walk');
     sit();
     sit();
     expect(stage()).toBe('seating');
     expect(audio.player.hold).toHaveBeenCalledTimes(1);
     expect(audio.player.release).not.toHaveBeenCalled();
-    frames(1500);
+    await frames(1500);
     expect(stage()).toBe('headphones');
-    frames(1000);
+    await frames(1000);
     expect(stage()).toBe('boot');
     expect(audio.player.hold).toHaveBeenCalledTimes(1);
   });
 
-  it('Escape in boot or plugin releases the audio and returns to walk', () => {
-    const { audio } = setup();
+  it('Escape in boot or plugin releases the audio and returns to walk', async () => {
+    const { audio } = await setup();
     sit();
-    frames(2600);
+    await frames(2600);
     expect(stage()).toBe('boot');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(stage()).toBe('walk');
     expect(audio.player.release).toHaveBeenCalledTimes(1);
 
-    frames(1500); // stand-up ease
+    await frames(1500); // stand-up ease
     sit();
-    frames(2600);
+    await frames(2600);
     act(() => h.plugin!.onReady?.());
-    frames(3000);
+    await frames(3000);
     expect(stage()).toBe('plugin');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(stage()).toBe('walk');
     expect(audio.player.release).toHaveBeenCalledTimes(2);
   });
 
-  it('Escape during the seating ease ends in one consistent state', () => {
-    const { audio } = setup();
+  it('Escape during the seating ease ends in one consistent state', async () => {
+    const { audio } = await setup();
     sit();
-    frames(400);
+    await frames(400);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(stage()).toBe('walk');
-    frames(3000);
+    await frames(3000);
     expect(stage()).toBe('walk');
     expect(audio.player.hold).toHaveBeenCalledTimes(1);
     expect(audio.player.release).toHaveBeenCalledTimes(1);
   });
 
-  it('the visitor own iPod pause survives seat and stand (only hold and release are used, never play)', () => {
-    const { audio } = setup();
+  it('the visitor own iPod pause survives seat and stand (only hold and release are used, never play)', async () => {
+    const { audio } = await setup();
     sit();
-    frames(2600);
+    await frames(2600);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(audio.player.togglePlay).not.toHaveBeenCalled();
     expect(audio.player.select).not.toHaveBeenCalled();
@@ -205,17 +205,17 @@ describe('RoomExperience sequence', () => {
     expect(audio.player.release).toHaveBeenCalledTimes(1);
   });
 
-  it('Skip to site works in seating, boot, plugin and portal and unmounts once', () => {
+  it('Skip to site works in seating, boot, plugin and portal and unmounts once', async () => {
     for (const upTo of ['seating', 'boot', 'plugin', 'portal'] as const) {
       cleanup();
       h.plugin = null;
-      const { audio, navigate, onLeave } = setup();
+      const { audio, navigate, onLeave } = await setup();
       if (upTo === 'seating') sit();
       else if (upTo === 'boot') {
         sit();
-        frames(2600);
+        await frames(2600);
       } else {
-        toPlugin();
+        await toPlugin();
         if (upTo === 'portal') playAll();
       }
       expect(stage()).toBe(upTo);
@@ -223,14 +223,14 @@ describe('RoomExperience sequence', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Skip to site' }));
       expect(onLeave).toHaveBeenCalledTimes(1);
       expect(audio.player.release).toHaveBeenCalledTimes(1);
-      frames(5000);
+      await frames(5000);
       expect(navigate).not.toHaveBeenCalled();
     }
   });
 
-  it('the third SOUND_PLAYED shows the portal and, at PORTAL_DONE, sets room:left then navigates to the Premonition URL', () => {
-    const { navigate } = setup();
-    toPlugin();
+  it('the third SOUND_PLAYED shows the portal and, at PORTAL_DONE, sets room:left then navigates to the Premonition URL', async () => {
+    const { navigate } = await setup();
+    await toPlugin();
     const [a, b, c] = SOURCES.map((s) => s.id);
     act(() => h.plugin!.onSoundPlayed(a));
     act(() => h.plugin!.onSoundPlayed(b));
@@ -243,41 +243,41 @@ describe('RoomExperience sequence', () => {
     navigate.mockImplementation(() => {
       leftWhenNavigated = sessionStorage.getItem('room:left');
     });
-    frames(3100);
+    await frames(3100);
     expect(navigate).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledWith(LINKS.premonitionStore);
     expect(leftWhenNavigated).toBe('1');
   });
 
-  it('a repeated sound does not fire the portal early', () => {
-    setup();
-    toPlugin();
+  it('a repeated sound does not fire the portal early', async () => {
+    await setup();
+    await toPlugin();
     const [a] = SOURCES.map((s) => s.id);
     for (let i = 0; i < 3; i++) act(() => h.plugin!.onSoundPlayed(a));
     expect(stage()).toBe('plugin');
   });
 
-  it('ENGINE_FAILED shows the failure and never navigates to the portal URL', () => {
-    const { navigate } = setup();
+  it('ENGINE_FAILED shows the failure and never navigates to the portal URL', async () => {
+    const { navigate } = await setup();
     sit();
     act(() => h.plugin!.onLoadError?.('wasm'));
-    frames(6000);
+    await frames(6000);
     expect(stage()).toBe('boot');
     expect(screen.getByText('engine failed to load')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Skip to site' })).toBeTruthy();
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  it('a hidden tab keeps audio held and does not restart the boot', () => {
-    const { audio } = setup();
+  it('a hidden tab keeps audio held and does not restart the boot', async () => {
+    const { audio } = await setup();
     sit();
-    frames(2600);
+    await frames(2600);
     const mounts = h.pluginMounts;
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
     act(() => void document.dispatchEvent(new Event('visibilitychange')));
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
     act(() => void document.dispatchEvent(new Event('visibilitychange')));
-    frames(100);
+    await frames(100);
     expect(stage()).toBe('boot');
     expect(audio.player.release).not.toHaveBeenCalled();
     expect(h.pluginMounts).toBe(mounts);

@@ -4,7 +4,7 @@
 // RoomGate after the visitor clicks Enter, so three.js stays out of every
 // other bundle. Pure logic lives in movement.ts and layout.ts; this file wires
 // it to the renderer, the input devices and the HUD.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import * as THREE from 'three';
 import { ROOM } from '@/content/copy';
@@ -20,7 +20,6 @@ import { Hud } from './Hud';
 import { InteractPrompt } from './InteractPrompt';
 import { IpodScreen } from './ipod/IpodScreen';
 import type { IpodAction } from './ipod/menu';
-import { PluginScreen } from '@/premonition/PluginScreen';
 import { FilmGrain } from './FilmGrain';
 import { initialSeq, seqReducer, shouldHoldRoomAudio, type SeqEvent, type SeqState } from './sequence/machine';
 import { Terminal } from './sequence/Terminal';
@@ -28,6 +27,9 @@ import { Portal } from './sequence/Portal';
 import { dollyProgress, PORTAL_MS } from './sequence/portalMath';
 import { attachHeadphones, poseHeadphones, HEADPHONE_DROP_MS } from './sequence/headphones';
 import styles from './room.module.css';
+
+// Loaded only when the visitor sits down: the plugin UI and its engine stay out of the room chunk.
+const PluginScreen = lazy(() => import('@/premonition/PluginScreen').then((m) => ({ default: m.PluginScreen })));
 
 export type RoomAudio = { ctx: AudioContext; player: TrackPlayer };
 
@@ -738,13 +740,15 @@ export default function RoomExperience({
         )}
         {pluginMounted && (
           <div className={styles.seqFrame} data-hidden={String(stage !== 'plugin')}>
-            <PluginScreen
-              playedIds={seq.heard}
-              onSoundPlayed={onSoundPlayed}
-              onReady={onEngineReady}
-              onLoadError={onEngineFailed}
-              onClose={onPluginClose}
-            />
+            <Suspense fallback={null}>
+              <PluginScreen
+                playedIds={seq.heard}
+                onSoundPlayed={onSoundPlayed}
+                onReady={onEngineReady}
+                onLoadError={onEngineFailed}
+                onClose={onPluginClose}
+              />
+            </Suspense>
           </div>
         )}
       </div>
