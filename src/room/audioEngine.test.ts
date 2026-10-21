@@ -112,7 +112,7 @@ describe('TrackPlayer', () => {
     expect(h.sources).toHaveLength(1);
     expect(h.sources[0].started).toBe(1);
     expect(h.panners).toHaveLength(2);
-    expect(h.panners.map((x) => x.positionX.value)).toEqual([-1.6, 1.85]);
+    expect(h.panners.map((x) => x.positionX.value)).toEqual([-0.8, 1.8]);
     expect(h.panners.every((x) => x.positionY.value === 1 && x.distanceModel === 'inverse' && x.refDistance === 1.5 && x.rolloffFactor === 1)).toBe(true);
     expect(h.panners.every((x) => x.connected[0] === h.raw.destination)).toBe(true);
   });

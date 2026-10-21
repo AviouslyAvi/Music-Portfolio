@@ -3,9 +3,9 @@
 // The room is muted and dim; only the iPod and the computer screen glow.
 import * as THREE from 'three';
 import { ROOM_COLORS } from './palette';
-import { DESK_MAIN, DESK_LEG, SPEAKER_LEFT, SPEAKER_RIGHT, IPOD_POS, COMPUTER_POS } from './layout';
+import { DESK, KEYBOARD_STAND, SPEAKER_LEFT, SPEAKER_RIGHT, IPOD_POS, COMPUTER_POS } from './layout';
 import {
-  Kit, makeMaterials, addShell, addSlatWall, addDesk, addSpeaker, addWindow, addShelves, addPlant,
+  Kit, makeMaterials, addShell, addSlatWall, addDesk, addKeyboardStand, addSpeaker, addWindow, addShelves, addPlant,
   addGuitar, addClock, addPosters, addRug, addChair, addDeskLamp, type V3,
 } from './furniture';
 
@@ -112,7 +112,8 @@ export function buildRoom(): Room {
 
   addShell(k, group, m, ROOM_HEIGHT);
   addSlatWall(k, group, m, ROOM_HEIGHT);
-  addDesk(k, group, m, DESK_MAIN, DESK_LEG, DESK_TOP);
+  addDesk(k, group, m, DESK, DESK_TOP);
+  addKeyboardStand(k, group, m, KEYBOARD_STAND);
   addRug(k, group, m);
   addWindow(k, group, m);
   addShelves(k, group, m);
@@ -120,8 +121,8 @@ export function buildRoom(): Room {
   addClock(k, group, m, [1.985, 1.85, 0.5]);
   addPosters(k, group, m);
   addChair(k, group, m, 0.15, -1.75, -0.25);
-  addPlant(k, group, m, [1.38, MAT_TOP, -1.85], 1);
-  addPlant(k, group, m, [-1.05, MAT_TOP, -2.6], 0.55);
+  addPlant(k, group, m, [1.5, MAT_TOP, -2.5], 1);
+  addPlant(k, group, m, [-0.52, MAT_TOP, -2.9], 0.55);
   const speakers: [THREE.Object3D, THREE.Object3D] = [
     addSpeaker(k, group, m, 'speaker-left', SPEAKER_LEFT, 0.25),
     addSpeaker(k, group, m, 'speaker-right', SPEAKER_RIGHT, -0.25),
@@ -130,7 +131,7 @@ export function buildRoom(): Room {
   const computer = addComputer(k, group);
 
   // Lighting: one warm lamp, a dim cool/warm hemisphere fill. No shadow maps.
-  const bulb = addDeskLamp(k, group, m, -0.95, -2.75, MAT_TOP);
+  const bulb = addDeskLamp(k, group, m, 1.12, -2.75, MAT_TOP);
   const lamp = new THREE.PointLight(ROOM_COLORS.lamp, 2.6, 0, 1.1);
   lamp.name = 'lamp-light';
   lamp.position.copy(bulb);

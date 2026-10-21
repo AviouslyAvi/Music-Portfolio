@@ -4,7 +4,7 @@
 // floor at y = 0, far wall at z = -3.
 import * as THREE from 'three';
 import { ROOM_COLORS } from './palette';
-import { RUG } from './layout';
+import { RUG, TWEETER_Y } from './layout';
 import type { Box } from './movement';
 
 export type V3 = [number, number, number];
@@ -145,21 +145,18 @@ export function addSlatWall(k: Kit, g: THREE.Object3D, m: Mats, H: number) {
   }
 }
 
-/** L-shaped desk: the two tops carry userData.solid and match the layout boxes exactly. */
-export function addDesk(k: Kit, g: THREE.Object3D, m: Mats, main: Box, leg: Box, top: number) {
+/** Straight desk: the top carries userData.solid and matches the layout box exactly. */
+export function addDesk(k: Kit, g: THREE.Object3D, m: Mats, desk: Box, top: number) {
   const th = 0.045;
-  const a = k.span(g, m.walnut, [main.minX, top - th, main.minZ], [main.maxX, top, main.maxZ], 'desk-main');
-  const b = k.span(g, m.walnut, [leg.minX, top - th, leg.minZ], [leg.maxX, top, leg.maxZ], 'desk-leg');
+  const a = k.span(g, m.walnut, [desk.minX, top - th, desk.minZ], [desk.maxX, top, desk.maxZ], 'desk');
   a.userData.solid = true;
-  b.userData.solid = true;
   // Slab legs and a modesty panel, all inside the desk footprint.
   const lh = top - th;
-  k.span(g, m.walnutDark, [main.minX, 0, main.minZ + 0.02], [main.minX + 0.04, lh, main.maxZ - 0.02]);
-  k.span(g, m.walnutDark, [leg.maxX - 0.04, 0, main.minZ + 0.02], [leg.maxX, lh, leg.maxZ - 0.02]);
-  k.span(g, m.walnutDark, [leg.minX, 0, leg.maxZ - 0.06], [leg.minX + 0.04, lh, leg.maxZ - 0.02]);
-  k.span(g, m.walnutDark, [main.minX + 0.04, 0.3, main.minZ + 0.02], [leg.maxX - 0.04, lh, main.minZ + 0.05]);
+  k.span(g, m.walnutDark, [desk.minX, 0, desk.minZ + 0.02], [desk.minX + 0.04, lh, desk.maxZ - 0.02]);
+  k.span(g, m.walnutDark, [desk.maxX - 0.04, 0, desk.minZ + 0.02], [desk.maxX, lh, desk.maxZ - 0.02]);
+  k.span(g, m.walnutDark, [desk.minX + 0.04, 0.3, desk.minZ + 0.02], [desk.maxX - 0.04, lh, desk.minZ + 0.05]);
   // Black desk mat under the iPod, keyboard and computer.
-  k.span(g, m.deskMat, [-1.0, top, -2.95], [1.25, top + 0.005, -2.43], 'desk-mat');
+  k.span(g, m.deskMat, [desk.minX + 0.05, top, desk.minZ + 0.05], [desk.maxX - 0.35, top + 0.005, desk.minZ + 0.57], 'desk-mat');
 }
 
 /** Studio monitor on a stand. The floor plate is the solid and matches the footprint. */
@@ -171,10 +168,11 @@ export function addSpeaker(k: Kit, g: THREE.Object3D, m: Mats, name: string, foo
   g.add(s);
   const plate = k.span(s, m.black, [foot.minX - cx, 0, foot.minZ - cz], [foot.maxX - cx, 0.025, foot.maxZ - cz]);
   plate.userData.solid = true;
-  k.box(s, m.black, [0, 0.47, 0], [0.05, 0.9, 0.05]);
-  k.box(s, m.black, [0, 0.91, 0], [0.22, 0.02, 0.22]);
+  k.box(s, m.black, [0, 0.46, 0], [0.05, 0.88, 0.05]);
+  k.box(s, m.black, [0, 0.89, 0], [0.22, 0.02, 0.22]);
   const cab = new THREE.Group();
-  cab.position.set(0, 1.13, 0);
+  cab.name = `${name}-cabinet`;
+  cab.position.set(0, TWEETER_Y, 0);
   cab.rotation.y = toe;
   s.add(cab);
   k.box(cab, m.speaker, [0, 0, 0], [0.24, 0.4, 0.3]);
@@ -183,6 +181,22 @@ export function addSpeaker(k: Kit, g: THREE.Object3D, m: Mats, name: string, foo
   k.cyl(cab, m.black, 0.035, 0.035, 0.014, 12, [0, -0.06, 0.155], face);
   k.cyl(cab, m.cone, 0.03, 0.03, 0.012, 12, [0, 0.12, 0.152], face);
   return s;
+}
+
+/** Height of the keyboard stand's top rails, metres. */
+export const KEYBOARD_STAND_TOP = 0.78;
+
+/** Keyboard stand: four legs, a top frame and a floor plate. The plate is the solid and matches the footprint. */
+export function addKeyboardStand(k: Kit, g: THREE.Object3D, m: Mats, stand: Box) {
+  const plate = k.span(g, m.black, [stand.minX, 0, stand.minZ], [stand.maxX, 0.02, stand.maxZ], 'keyboard-stand');
+  plate.userData.solid = true;
+  const t = 0.035, top = KEYBOARD_STAND_TOP;
+  const x0 = stand.minX + 0.04, x1 = stand.maxX - 0.04, z0 = stand.minZ + 0.04, z1 = stand.maxZ - 0.04;
+  for (const x of [x0, x1])
+    for (const z of [z0, z1]) k.span(g, m.black, [x - t / 2, 0.02, z - t / 2], [x + t / 2, top, z + t / 2]);
+  // Rails along the long sides and a cross brace at each end.
+  for (const x of [x0, x1]) k.span(g, m.black, [x - t / 2, top - 0.03, z0], [x + t / 2, top, z1]);
+  for (const z of [z0, z1]) k.span(g, m.black, [x0, top - 0.03, z - t / 2], [x1, top, z + t / 2]);
 }
 
 /** Window on the left wall: dim bluish pane (dusk), black frame and mullions. */

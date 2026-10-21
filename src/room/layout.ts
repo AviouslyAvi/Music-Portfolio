@@ -5,19 +5,32 @@ import type { Box, PlayerState, Vec2 } from './movement';
 
 export const ROOM_BOUNDS: Box = { minX: -2, maxX: 2, minZ: -3, maxZ: 3 };
 
-// L-shaped walnut desk against the far wall: a main run plus a return leg.
-export const DESK_MAIN: Box = { minX: -1.2, maxX: 1.6, minZ: -3, maxZ: -2.4 };
-export const DESK_LEG: Box = { minX: 1.1, maxX: 1.6, minZ: -2.4, maxZ: -1.6 };
-// Speakers on stands flanking the desk (footprint of stand and cabinet).
-export const SPEAKER_LEFT: Box = { minX: -1.8, maxX: -1.4, minZ: -2.95, maxZ: -2.55 };
-export const SPEAKER_RIGHT: Box = { minX: 1.7, maxX: 2, minZ: -2.95, maxZ: -2.55 };
+export type Vec3 = { x: number; y: number; z: number };
+
+// Straight walnut desk against the far wall.
+export const DESK: Box = { minX: -0.6, maxX: 1.6, minZ: -3, maxZ: -2.4 };
+// Speakers on stands, one each side of the desk, flush against it (footprint of stand and cabinet).
+export const SPEAKER_LEFT: Box = { minX: -1, maxX: -0.6, minZ: -2.95, maxZ: -2.55 };
+export const SPEAKER_RIGHT: Box = { minX: 1.6, maxX: 2, minZ: -2.95, maxZ: -2.55 };
+// 88-key keyboard on a stand, left of the desk, running out from the far wall.
+// Its keys face the room (+x) so the player plays from the lane beside it.
+export const KEYBOARD_STAND: Box = { minX: -2, maxX: -1.6, minZ: -3, maxZ: -1.7 };
+
+/** Height of the speaker cabinet centre (the tweeter), metres. */
+export const TWEETER_Y = 1.1;
+const centre = (b: Box) => ({ x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 });
+/** Cabinet centres: x, z from the footprints, so audio and geometry cannot drift apart. */
+export const SPEAKERS: readonly [Vec3, Vec3] = [
+  { ...centre(SPEAKER_LEFT), y: TWEETER_Y },
+  { ...centre(SPEAKER_RIGHT), y: TWEETER_Y },
+];
 
 // Not solids: the shaggy rug is walkable, and the two floating shelves hang
 // above head height, so neither is in SOLIDS. A chair is also left out so the
 // space in front of the desk stays free.
 export const RUG: Box = { minX: -1.2, maxX: 1.2, minZ: -0.8, maxZ: 1.4 };
 
-export const SOLIDS: Box[] = [DESK_MAIN, DESK_LEG, SPEAKER_LEFT, SPEAKER_RIGHT];
+export const SOLIDS: Box[] = [DESK, SPEAKER_LEFT, SPEAKER_RIGHT, KEYBOARD_STAND];
 
 export const START: PlayerState = { pos: { x: 0, z: 2.2 }, yaw: 0 };
 
@@ -28,6 +41,9 @@ export const IPOD_POS: Vec2 = { x: -0.5, z: -2.7 };
 export const COMPUTER_POS: Vec2 = { x: 0.7, z: -2.7 };
 
 export const INTERACT_RADIUS = 1.4;
+
+/** Camera when seated at the computer (yaw 0 faces the desk). */
+export const SEAT_POSE = { x: COMPUTER_POS.x, z: -1.85, yaw: 0, pitch: -0.5 };
 
 /** Closest interactable within INTERACT_RADIUS. An exact tie goes to 'ipod'. */
 export function nearestInteractable(p: Vec2): 'ipod' | 'computer' | null {
