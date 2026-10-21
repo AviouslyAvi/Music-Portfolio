@@ -2,9 +2,10 @@ import type { Track } from '@/content/tracks';
 import { SPEAKER_LEFT, SPEAKER_RIGHT } from './layout';
 
 // Design decisions (each one is asserted in audioEngine.test.ts):
-//  a) While a crossfade is in flight (fetch, decode and fade included) further
-//     next() calls are ignored and return the same in-flight promise, so the
-//     playlist advances exactly once per completed fade.
+//  a) Track changes are immediate: select(), step() and next() cut the old source
+//     and start the new one as soon as its audio is decoded, with no fade. The
+//     latest request wins: a click while an earlier one is still loading
+//     supersedes it, and the superseded load never starts a source.
 //  b) A track that fails to fetch or decode fires onError once with its id and
 //     the player moves on to the next track that works. If every track fails,
 //     onError fires once per track and playback stays silent; no retry loop,
@@ -17,22 +18,16 @@ import { SPEAKER_LEFT, SPEAKER_RIGHT } from './layout';
 //  d) start() resumes a suspended context. A rejected resume is reported
 //     through onError with trackId 'audio-context' and start() still returns
 //     normally.
-//  e) dispose() is idempotent: it stops sources, disconnects nodes, settles any
-//     pending fade, and a fetch or decode that resolves afterwards is dropped.
-// Fades use setValueCurveAtTime with curves sampled from crossfadeGains, so the
-// gain automation is equal-power on both sides of the fade.
-// Routing: source -> fade gain -> master gain -> two panners at the speaker
+//  e) dispose() is idempotent: it stops sources, disconnects nodes, and a fetch
+//     or decode that resolves afterwards is dropped.
+//  f) While a track plays, the bytes of its two neighbours are fetched in the
+//     background (not decoded, to keep memory low) so a step lands quickly.
+//     A failed prefetch is silent; the real load retries and reports.
+// Routing: source -> gain -> master gain -> two panners at the speaker
 // positions -> out (the caller passes ctx.destination).
 
-export const CROSSFADE_SECONDS = 1.5;
 export const DEFAULT_VOLUME = 0.8;
-const CURVE_POINTS = 64;
 const SPEAKER_HEIGHT = 1.0;
-
-export function crossfadeGains(t: number, duration: number): { out: number; in: number } {
-  const p = duration > 0 ? Math.min(Math.max(t, 0), duration) / duration : 1;
-  return { out: Math.cos((p * Math.PI) / 2), in: Math.sin((p * Math.PI) / 2) };
-}
 
 /** Id reported through onError when the audio context could not be resumed. */
 export const AUDIO_CONTEXT_ERROR = 'audio-context';
@@ -67,9 +62,12 @@ export class TrackPlayer {
   private readonly buffers = new Map<string, AudioBuffer>();
   private readonly errorCbs: Array<(e: { trackId: string }) => void> = [];
   private current: Live | null = null;
-  private inFlight: Promise<void> | null = null;
   private startPromise: Promise<void> | null = null;
-  private settleFade: (() => void) | null = null;
+  private readonly rawBytes = new Map<string, Promise<ArrayBuffer>>();
+  // Bumped by every step/select/next; a load that finds it changed has been superseded.
+  private switchToken = 0;
+  // Where the latest step/select is headed, so a second click steps from there.
+  private pending: number | null = null;
   private disposed = false;
   private _index = 0;
   private _volume = DEFAULT_VOLUME;
@@ -166,24 +164,23 @@ export class TrackPlayer {
       this._index = (this._index + dir + n) % n;
       return Promise.resolve();
     }
-    if (this.inFlight) return this.inFlight;
     this.userPaused = false;
     this.applySuspension();
-    return this.track(() => this.doStep(dir));
+    return this.stepFromPending(dir);
   }
 
-  /** Play track `index` now: starts it, or crossfades to it, or resumes it if it is already current. */
+  /** Play track `index` now: starts it, or cuts straight to it, or resumes it if it is already current. */
   select(index: number): Promise<void> {
     if (this.disposed || !Number.isInteger(index) || index < 0 || index >= this.tracks.length) return Promise.resolve();
     if (!this.startPromise) {
       this._index = index;
       return this.play();
     }
-    if (index === this._index) return this.play();
-    if (this.inFlight) return this.inFlight;
+    if (index === this._index && this.pending === null) return this.play();
     this.userPaused = false;
     this.applySuspension();
-    return this.track(() => this.doSelect(index));
+    this.pending = index;
+    return this.switchWith((token) => this.doSelect(index, token));
   }
 
   /** The room suspends audio (hidden tab, overlay) without disturbing a visitor's pause. */
@@ -228,24 +225,26 @@ export class TrackPlayer {
   }
 
   next(): Promise<void> {
-    if (this.disposed) return Promise.resolve();
-    if (this.inFlight) return this.inFlight;
-    if (this.tracks.length < 2) return Promise.resolve();
+    if (this.disposed || this.tracks.length < 2) return Promise.resolve();
     // Serialized with start(): next() first awaits start() (calling it when it
     // has not been called yet), then advances, so exactly one source plays.
-    const run = this.start().then(() => this.doNext()).finally(() => {
-      if (this.inFlight === run) this.inFlight = null;
-    });
-    this.inFlight = run;
-    return run;
+    return this.stepFromPending(1);
   }
 
-  private track(fn: () => Promise<void>): Promise<void> {
-    const run = this.start().then(fn).finally(() => {
-      if (this.inFlight === run) this.inFlight = null;
-    });
-    this.inFlight = run;
-    return run;
+  private stepFromPending(dir: 1 | -1): Promise<void> {
+    const n = this.tracks.length;
+    const from = this.pending ?? this._index;
+    this.pending = (from + dir + n) % n; // claimed now, so a second click steps from here
+    return this.switchWith((token) => this.doStep(dir, from, token));
+  }
+
+  private switchWith(fn: (token: number) => Promise<void>): Promise<void> {
+    const token = ++this.switchToken;
+    return this.start()
+      .then(() => fn(token))
+      .finally(() => {
+        if (this.switchToken === token) this.pending = null;
+      });
   }
 
   private applySuspension(): void {
@@ -264,11 +263,11 @@ export class TrackPlayer {
     this.disposed = true;
     if (this.current) this.teardown(this.current);
     this.current = null;
-    this.settleFade?.();
     this.errorCbs.length = 0;
     for (const p of this.panners) p.disconnect();
     this.master.disconnect();
     this.buffers.clear();
+    this.rawBytes.clear();
   }
 
   private emitError(trackId: string): void {
@@ -300,48 +299,70 @@ export class TrackPlayer {
       if (this.current) return; // never clobber a source something else claimed
       this._index = i;
       this.current = this.startSource(buf, 1);
+      this.prefetchNeighbours();
       return;
     }
   }
 
-  private doNext(): Promise<void> {
-    return this.doStep(1);
-  }
-
-  private async doSelect(index: number): Promise<void> {
+  private async doSelect(index: number, token: number): Promise<void> {
     if (this.disposed || !this.current) return;
     const buf = await this.load(this.tracks[index]);
-    if (this.disposed || !buf) return;
-    await this.fadeTo(buf, index);
+    if (this.disposed || !buf || token !== this.switchToken) return;
+    this.swapTo(buf, index);
   }
 
-  private async doStep(dir: 1 | -1): Promise<void> {
+  private async doStep(dir: 1 | -1, from: number, token: number): Promise<void> {
     if (this.disposed || !this.current) return; // nothing playing: stay silent
     const n = this.tracks.length;
     for (let step = 1; step < n; step++) {
-      const i = (((this._index + dir * step) % n) + n) % n;
+      const i = (((from + dir * step) % n) + n) % n;
+      this.pending = i;
       const buf = await this.load(this.tracks[i]);
-      if (this.disposed) return;
+      if (this.disposed || token !== this.switchToken) return;
       if (!buf) continue;
-      await this.fadeTo(buf, i);
+      this.swapTo(buf, i);
       return;
     }
+  }
+
+  private fetchBytes(track: Track): Promise<ArrayBuffer> {
+    let p = this.rawBytes.get(track.id);
+    if (!p) {
+      p = this.fetchFn(track.src).then((res) => {
+        if (!res.ok) throw new Error('fetch failed');
+        return res.arrayBuffer();
+      });
+      this.rawBytes.set(track.id, p);
+    }
+    return p;
   }
 
   private async load(track: Track): Promise<AudioBuffer | null> {
     const cached = this.buffers.get(track.id);
     if (cached) return cached;
     try {
-      const res = await this.fetchFn(track.src);
-      if (!res.ok) throw new Error('fetch failed');
-      const data = await res.arrayBuffer();
-      const buf = await this.ctx.decodeAudioData(data);
+      const data = await this.fetchBytes(track);
+      // decodeAudioData detaches its input, so decode a copy and keep the bytes for a retry.
+      const buf = await this.ctx.decodeAudioData(data.slice(0));
       if (this.disposed) return null;
+      this.rawBytes.delete(track.id);
       this.buffers.set(track.id, buf);
       return buf;
     } catch {
+      this.rawBytes.delete(track.id);
       if (!this.disposed) this.emitError(track.id);
       return null;
+    }
+  }
+
+  /** Warm the bytes of the previous and next tracks; failures are left for load() to report. */
+  private prefetchNeighbours(): void {
+    const n = this.tracks.length;
+    if (n < 2) return;
+    for (const d of [1, -1]) {
+      const t = this.tracks[(((this._index + d) % n) + n) % n];
+      if (this.buffers.has(t.id) || this.rawBytes.has(t.id)) continue;
+      this.fetchBytes(t).catch(() => this.rawBytes.delete(t.id));
     }
   }
 
@@ -367,31 +388,12 @@ export class TrackPlayer {
     l.gain.disconnect();
   }
 
-  private async fadeTo(buffer: AudioBuffer, index: number): Promise<void> {
+  private swapTo(buffer: AudioBuffer, index: number): void {
     const old = this.current;
-    const incoming = this.startSource(buffer, 0);
-    const outCurve = new Float32Array(CURVE_POINTS);
-    const inCurve = new Float32Array(CURVE_POINTS);
-    for (let k = 0; k < CURVE_POINTS; k++) {
-      const g = crossfadeGains((k / (CURVE_POINTS - 1)) * CROSSFADE_SECONDS, CROSSFADE_SECONDS);
-      outCurve[k] = g.out;
-      inCurve[k] = g.in;
-    }
-    const now = this.ctx.currentTime;
-    incoming.gain.gain.setValueCurveAtTime(inCurve, now, CROSSFADE_SECONDS);
-    old?.gain.gain.setValueCurveAtTime(outCurve, now, CROSSFADE_SECONDS);
-    this.current = incoming;
+    this.current = this.startSource(buffer, 1);
     this._index = index;
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(done, CROSSFADE_SECONDS * 1000);
-      const self = this;
-      function done() {
-        clearTimeout(timer);
-        self.settleFade = null;
-        resolve();
-      }
-      this.settleFade = done;
-    });
+    this.pending = null;
     if (old) this.teardown(old);
+    this.prefetchNeighbours();
   }
 }

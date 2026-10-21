@@ -1,25 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { crossfadeGains, TrackPlayer, CROSSFADE_SECONDS, isAudioUnavailable } from './audioEngine';
+import { TrackPlayer, isAudioUnavailable } from './audioEngine';
 import type { Track } from '@/content/tracks';
-
-describe('crossfadeGains', () => {
-  it('endpoints', () => {
-    expect(crossfadeGains(0, 2)).toEqual({ out: 1, in: 0 });
-    const end = crossfadeGains(2, 2);
-    expect(end.out).toBeCloseTo(0, 10);
-    expect(end.in).toBeCloseTo(1, 10);
-  });
-  it('is equal power at the midpoint and throughout', () => {
-    for (const t of [0.3, 1, 1.4]) {
-      const g = crossfadeGains(t, 2);
-      expect(g.out ** 2 + g.in ** 2).toBeCloseTo(1, 10);
-    }
-  });
-  it('clamps t', () => {
-    expect(crossfadeGains(-5, 2)).toEqual(crossfadeGains(0, 2));
-    expect(crossfadeGains(9, 2)).toEqual(crossfadeGains(2, 2));
-  });
-});
 
 class FakeParam {
   value = 0;
@@ -117,7 +98,7 @@ function makeFetch(bad: string[] = []) {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-async function settle(ms = CROSSFADE_SECONDS * 1000) {
+async function settle(ms = 0) {
   await vi.advanceTimersByTimeAsync(ms);
 }
 
@@ -136,48 +117,59 @@ describe('TrackPlayer', () => {
     expect(h.panners.every((x) => x.connected[0] === h.raw.destination)).toBe(true);
   });
 
-  it('ignores next() during a fade and returns the same promise (one advance per fade)', async () => {
+  it('next() switches at once: old source cut, new one at full gain, no fade curves', async () => {
     const h = makeCtx();
     const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
     await p.start();
-    const first = p.next();
-    const second = p.next();
-    const third = p.next();
-    expect(second).toBe(first);
-    expect(third).toBe(first);
-    await settle();
-    await first;
+    await p.next(); // resolves without advancing any timer
     expect(p.index).toBe(1);
     expect(h.sources).toHaveLength(2);
     expect(h.sources[0].stopped).toBe(1);
-    // after the fade completes a new call is accepted
-    const again = p.next();
-    expect(again).not.toBe(first);
-    await settle();
-    await again;
-    expect(p.index).toBe(2);
+    expect(h.sources[1].started).toBe(1);
+    expect(h.gains[2].gain.value).toBe(1);
+    expect(h.gains.every((g) => g.gain.curves.length === 0)).toBe(true);
   });
 
-  it('fades with equal-power curves over 1.5 s', async () => {
+  it('rapid next() calls: the latest wins and only one source ends up playing', async () => {
     const h = makeCtx();
     const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
     await p.start();
-    const pending = p.next();
+    await Promise.all([p.next(), p.next()]);
+    expect(p.index).toBe(2); // the second click stepped from the first's target
+    expect(h.sources.filter((x) => x.started > x.stopped)).toHaveLength(1);
+  });
+
+  it('a select() superseded while loading never starts a source', async () => {
+    const h = makeCtx();
+    const gates = new Map<string, () => void>();
+    const f = vi.fn(async (url: string) => {
+      const id = /\/(\w+)\./.exec(url)![1];
+      if (id !== 'a') await new Promise<void>((r) => gates.set(id, r));
+      return { ok: true, arrayBuffer: async () => new Uint8Array([1]).buffer };
+    });
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, f);
+    await p.start();
+    const toB = p.select(1);
+    const toC = p.select(2);
     await vi.advanceTimersByTimeAsync(0);
-    const outGain = h.gains[1];
-    const inGain = h.gains[2];
-    const o = outGain.gain.curves[0];
-    const i = inGain.gain.curves[0];
-    expect(o.dur).toBe(1.5);
-    expect(o.start).toBe(10);
-    expect(o.values[0]).toBeCloseTo(1);
-    expect(o.values[o.values.length - 1]).toBeCloseTo(0);
-    expect(i.values[0]).toBeCloseTo(0);
-    expect(i.values[i.values.length - 1]).toBeCloseTo(1);
-    const mid = Math.floor(o.values.length / 2);
-    expect(o.values[mid] ** 2 + i.values[mid] ** 2).toBeCloseTo(1, 1);
+    gates.get('c')?.();
+    await toC;
+    gates.get('b')?.();
+    await toB;
+    expect(p.index).toBe(2);
+    expect(h.sources).toHaveLength(2);
+  });
+
+  it('prefetches the neighbours of the playing track without decoding them', async () => {
+    const h = makeCtx();
+    const f = makeFetch();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, f);
+    await p.start();
     await settle();
-    await pending;
+    expect(f).toHaveBeenCalledTimes(3); // a (playing), b and c (neighbours)
+    expect(h.raw.decodeAudioData).toHaveBeenCalledTimes(1);
+    await p.next();
+    expect(f).toHaveBeenCalledTimes(3); // b came from the prefetch, not a second fetch
   });
 
   it('loops the playlist', async () => {
@@ -296,12 +288,11 @@ describe('TrackPlayer', () => {
     await expect(p.next()).resolves.toBeUndefined();
   });
 
-  it('dispose during a fade settles the pending promise', async () => {
+  it('dispose while a switch is loading drops it', async () => {
     const h = makeCtx();
     const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
     await p.start();
     const n = p.next();
-    await vi.advanceTimersByTimeAsync(0);
     p.dispose();
     await expect(n).resolves.toBeUndefined();
     expect(h.sources.every((s) => s.stopped >= 1)).toBe(true);
@@ -491,7 +482,7 @@ describe('TrackPlayer iPod controls', () => {
     expect(h.sources).toHaveLength(1);
   });
 
-  it('step(-1) while playing crossfades back to the previous track', async () => {
+  it('step(-1) while playing switches straight back to the previous track', async () => {
     const { h, p } = mk();
     await p.play();
     const run = p.step(-1);
@@ -502,7 +493,7 @@ describe('TrackPlayer iPod controls', () => {
     expect(h.sources[0].stopped).toBe(1);
   });
 
-  it('select(i) while playing crossfades to that track; selecting the current one does not add a source', async () => {
+  it('select(i) while playing switches straight to that track; selecting the current one does not add a source', async () => {
     const { h, p } = mk();
     await p.play();
     const run = p.select(2);

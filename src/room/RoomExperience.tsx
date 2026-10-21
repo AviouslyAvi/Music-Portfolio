@@ -31,7 +31,12 @@ const LOOK_SPEED = 0.0025; // radians per pixel of mouse travel
 const MAX_PITCH = 1.2;
 const DRAG_THRESHOLD = 4; // pixels before a press counts as a drag, not a click
 const CLICK_RANGE = INTERACT_RADIUS * 1.5;
-const EASE_MS = 800;
+const EASE_MS = 1100;
+// Walking and turning ramp toward the held keys instead of snapping to them.
+const MOVE_RESPONSE = 9; // 1/s; about 110 ms to settle
+// Mouse look is spread over a few frames so it glides rather than steps.
+const LOOK_RESPONSE = 22; // 1/s
+const MAX_FRAME_DT = 0.05; // a hitch must not become a lurch
 // Seated in front of the screen, looking down at it a little.
 const DESK_POSE = { x: COMPUTER_POS.x, z: -1.85, yaw: 0, pitch: -0.5 };
 
@@ -81,7 +86,7 @@ function inClickRange(p: PlayerState['pos'], t: Interactable): boolean {
 
 const NO_FAILURES: string[] = [];
 
-const smoothstep = (t: number) => t * t * (3 - 2 * t);
+const smootherstep = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 export default function RoomExperience({
@@ -173,6 +178,10 @@ export default function RoomExperience({
       let ease: { from: PlayerState; fromPitch: number; start: number; to: Pose; then: 'demo' | 'ipod' | 'walk' } | null = null;
       let returnPose: Pose = { x: START.pos.x, z: START.pos.z, yaw: START.yaw, pitch: 0 };
       const keys = new Set<string>();
+      // Input as the player feels it (ramped), and mouse travel not yet applied.
+      const felt = { forward: 0, strafe: 0, turn: 0 };
+      let lookX = 0;
+      let lookY = 0;
       let locked = false;
       let drag: { x: number; y: number; moved: boolean; wasLocked: boolean } | null = null;
       let lastNearby: Interactable | null = null;
@@ -227,6 +236,8 @@ export default function RoomExperience({
       const startEase = (to: Pose, then: 'demo' | 'ipod' | 'walk') => {
         exitLock();
         keys.clear();
+        felt.forward = felt.strafe = felt.turn = 0;
+        lookX = lookY = 0;
         drag = null;
         mode = 'easing';
         ease = { from: { pos: { ...player.pos }, yaw: player.yaw }, fromPitch: pitch, start: -1, to, then };
@@ -297,8 +308,8 @@ export default function RoomExperience({
       };
       const look = (dx: number, dy: number) => {
         if (mode !== 'walk') return;
-        player = { pos: player.pos, yaw: normalizeYaw(player.yaw - dx * LOOK_SPEED) };
-        pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch - dy * LOOK_SPEED));
+        lookX += dx;
+        lookY += dy;
       };
       listen(document, 'pointerlockchange', () => {
         locked = document.pointerLockElement === canvas;
@@ -367,20 +378,34 @@ export default function RoomExperience({
       const frame = (now: number) => {
         raf = requestAnimationFrame(frame);
         try {
-          const dt = last ? (now - last) / 1000 : 0;
+          const dt = last ? Math.min((now - last) / 1000, MAX_FRAME_DT) : 0;
           last = now;
           if (mode === 'walk') {
             const has = (s: Set<string>) => [...s].some((k) => keys.has(k));
-            const input = {
+            const want = {
               forward: (has(FORWARD) ? 1 : 0) - (has(BACK) ? 1 : 0),
               strafe: (has(RIGHT) ? 1 : 0) - (has(LEFT) ? 1 : 0),
               turn: (has(TURN_LEFT) ? 1 : 0) - (has(TURN_RIGHT) ? 1 : 0),
             };
-            if (input.forward || input.strafe || input.turn) player = stepPlayer(player, input, dt, SOLIDS, ROOM_BOUNDS);
+            const a = reduced ? 1 : 1 - Math.exp(-dt * MOVE_RESPONSE);
+            for (const axis of ['forward', 'strafe', 'turn'] as const) {
+              felt[axis] += (want[axis] - felt[axis]) * a;
+              if (Math.abs(felt[axis] - want[axis]) < 0.001) felt[axis] = want[axis];
+            }
+            if (felt.forward || felt.strafe || felt.turn) player = stepPlayer(player, felt, dt, SOLIDS, ROOM_BOUNDS);
+            if (lookX || lookY) {
+              const l = reduced ? 1 : 1 - Math.exp(-dt * LOOK_RESPONSE);
+              const dx = Math.abs(lookX) < 0.05 ? lookX : lookX * l;
+              const dy = Math.abs(lookY) < 0.05 ? lookY : lookY * l;
+              lookX -= dx;
+              lookY -= dy;
+              player = { pos: player.pos, yaw: normalizeYaw(player.yaw - dx * LOOK_SPEED) };
+              pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch - dy * LOOK_SPEED));
+            }
           } else if (mode === 'easing' && ease) {
             if (ease.start < 0) ease.start = now;
             const t = reduced ? 1 : Math.min(1, (now - ease.start) / EASE_MS);
-            const k = smoothstep(t);
+            const k = smootherstep(t);
             const to = ease.to;
             const dYaw = normalizeYaw(to.yaw - ease.from.yaw);
             player = {
