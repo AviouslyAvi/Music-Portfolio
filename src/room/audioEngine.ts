@@ -1,5 +1,6 @@
 import type { Track } from '@/content/tracks';
 import { SPEAKERS } from './layout';
+import { roomImpulse } from './acoustics';
 
 // Design decisions (each one is asserted in audioEngine.test.ts):
 //  a) Track changes are immediate: select(), step() and next() cut the old source
@@ -23,10 +24,27 @@ import { SPEAKERS } from './layout';
 //  f) While a track plays, the bytes of its two neighbours are fetched in the
 //     background (not decoded, to keep memory low) so a step lands quickly.
 //     A failed prefetch is silent; the real load retries and reports.
-// Routing: source -> gain -> master gain -> two panners at the speaker
-// positions -> out (the caller passes ctx.destination).
+//  g) Headroom: a panner downmixes to mono, so the two speakers carry the same
+//     signal and sum to twice the level at the ears. Each speaker feed is scaled
+//     down to leave room, and a limiter sits last so a hot master or a reverb
+//     tail can never clip the output.
+//  i) Scrubbing: seek(seconds) restarts the current track at that point (clamped
+//     to its length) with the same routing, so there is never a second source.
+//     position and duration are 0 until a track is sounding. The position keeps
+//     time on the audio clock, so it stands still while the context is suspended
+//     (paused, or held by the room) and wraps when the track loops.
+//  h) The room's reverb comes from the room's own size (acoustics.ts): the music is
+//     always heard as speakers in this room, including at the iPod.
+// Routing: source -> gain -> master gain -> [speakers: gain -> two panners]
+//                                          [room: send -> convolver]
+//          -> bus -> limiter -> out (the caller passes ctx.destination).
 
 export const DEFAULT_VOLUME = 0.8;
+
+/** Level of each speaker feed; two coherent feeds then sum to about 1.0 at the ears. */
+export const SPEAKER_FEED_GAIN = 0.5;
+/** How much of the music is sent to the room reverb. */
+export const ROOM_SEND_GAIN = 0.22;
 
 /** Id reported through onError when the audio context could not be resumed. */
 export const AUDIO_CONTEXT_ERROR = 'audio-context';
@@ -48,11 +66,14 @@ export function isAudioUnavailable(
   return tracks.length > 0 && tracks.every((t) => failed.has(t.id));
 }
 
-type Live = { source: AudioBufferSourceNode; gain: GainNode };
+type Live = { source: AudioBufferSourceNode; gain: GainNode; buffer: AudioBuffer; startedAt: number; offset: number };
 type FetchFn = (url: string) => Promise<{ ok: boolean; arrayBuffer(): Promise<ArrayBuffer> }>;
 
 export class TrackPlayer {
   private readonly master: GainNode;
+  private readonly speakerFeed: GainNode;
+  private readonly bus: GainNode;
+  private readonly extras: AudioNode[] = [];
   private readonly panners: PannerNode[] = [];
   private readonly buffers = new Map<string, AudioBuffer>();
   private readonly errorCbs: Array<(e: { trackId: string }) => void> = [];
@@ -80,6 +101,25 @@ export class TrackPlayer {
   ) {
     this.master = ctx.createGain();
     this.master.gain.value = DEFAULT_VOLUME;
+    this.speakerFeed = ctx.createGain();
+    this.speakerFeed.gain.value = SPEAKER_FEED_GAIN;
+    this.bus = ctx.createGain();
+    this.master.connect(this.speakerFeed);
+    this.buildRoomReverb();
+    // The limiter is last so nothing upstream can clip the output.
+    if (typeof ctx.createDynamicsCompressor === 'function') {
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -1; // a safety net, not a compressor: normal music passes untouched
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.12;
+      this.bus.connect(limiter);
+      limiter.connect(out);
+      this.extras.push(limiter);
+    } else {
+      this.bus.connect(out);
+    }
     for (const c of SPEAKERS) {
       const p = ctx.createPanner();
       p.panningModel = 'HRTF';
@@ -93,10 +133,53 @@ export class TrackPlayer {
       } else {
         p.setPosition(c.x, c.y, c.z);
       }
-      this.master.connect(p);
-      p.connect(out);
+      this.speakerFeed.connect(p);
+      p.connect(this.bus);
       this.panners.push(p);
     }
+  }
+
+  private buildRoomReverb(): void {
+    const ctx = this.ctx;
+    if (typeof ctx.createConvolver !== 'function' || typeof ctx.createBuffer !== 'function') return;
+    const sr = ctx.sampleRate || 48000;
+    const ir = roomImpulse(sr);
+    const buffer = ctx.createBuffer(2, ir[0].length, sr);
+    ir.forEach((d, c) => buffer.getChannelData(c).set(d));
+    const convolver = ctx.createConvolver();
+    convolver.buffer = buffer;
+    const send = ctx.createGain();
+    send.gain.value = ROOM_SEND_GAIN;
+    this.master.connect(send);
+    send.connect(convolver);
+    convolver.connect(this.bus);
+    this.extras.push(send, convolver);
+  }
+
+  /** Length of the current track in seconds; 0 until it is sounding. */
+  get duration(): number {
+    const d = this.current?.buffer.duration;
+    return typeof d === 'number' && Number.isFinite(d) ? d : 0;
+  }
+
+  /** Where the current track is, in seconds; 0 until it is sounding. */
+  get position(): number {
+    const c = this.current;
+    const d = this.duration;
+    if (!c || d <= 0) return 0;
+    const t = c.offset + Math.max(0, this.ctx.currentTime - c.startedAt);
+    return t % d;
+  }
+
+  /** Jump the current track to `seconds` (clamped to its length). Does nothing while nothing is sounding. */
+  seek(seconds: number): void {
+    const c = this.current;
+    if (this.disposed || !c || !Number.isFinite(seconds)) return;
+    const d = this.duration;
+    if (d <= 0) return;
+    const to = Math.min(Math.max(0, seconds), Math.max(0, d - 0.05));
+    this.current = this.startSource(c.buffer, 1, to);
+    this.teardown(c);
   }
 
   get index(): number {
@@ -259,6 +342,9 @@ export class TrackPlayer {
     this.current = null;
     this.errorCbs.length = 0;
     for (const p of this.panners) p.disconnect();
+    for (const n of this.extras) n.disconnect();
+    this.speakerFeed.disconnect();
+    this.bus.disconnect();
     this.master.disconnect();
     this.buffers.clear();
     this.rawBytes.clear();
@@ -360,7 +446,7 @@ export class TrackPlayer {
     }
   }
 
-  private startSource(buffer: AudioBuffer, initialGain: number): Live {
+  private startSource(buffer: AudioBuffer, initialGain: number, offset = 0): Live {
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
@@ -368,8 +454,8 @@ export class TrackPlayer {
     gain.gain.value = initialGain;
     source.connect(gain);
     gain.connect(this.master);
-    source.start();
-    return { source, gain };
+    source.start(0, offset);
+    return { source, gain, buffer, startedAt: this.ctx.currentTime, offset };
   }
 
   private teardown(l: Live): void {

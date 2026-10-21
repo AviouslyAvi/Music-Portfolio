@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TrackPlayer, isAudioUnavailable } from './audioEngine';
+import { TrackPlayer, isAudioUnavailable, SPEAKER_FEED_GAIN } from './audioEngine';
 import { SPEAKERS, TWEETER_Y, START } from './layout';
 import type { Track } from '@/content/tracks';
 
@@ -28,8 +28,10 @@ class FakeSource extends FakeNode {
   loop = false;
   started = 0;
   stopped = 0;
-  start() {
+  startArgs: unknown[][] = [];
+  start(...a: unknown[]) {
     this.started++;
+    this.startArgs.push(a);
   }
   stop() {
     this.stopped++;
@@ -45,7 +47,8 @@ class FakePanner extends FakeNode {
   positionZ = new FakeParam();
 }
 
-function makeCtx(opts: { state?: string; resume?: () => Promise<void>; legacyListener?: boolean } = {}) {
+function makeCtx(opts: { state?: string; resume?: () => Promise<void>; legacyListener?: boolean; full?: boolean } = {}) {
+  const compressors: Array<FakeNode & { ratio: FakeParam }> = [];
   const sources: FakeSource[] = [];
   const gains: FakeGain[] = [];
   const panners: FakePanner[] = [];
@@ -78,12 +81,26 @@ function makeCtx(opts: { state?: string; resume?: () => Promise<void>; legacyLis
       panners.push(p);
       return p;
     },
+    ...(opts.full
+      ? {
+          sampleRate: 48000,
+          createDynamicsCompressor: () => {
+            const c = Object.assign(new FakeNode(), {
+              threshold: new FakeParam(), knee: new FakeParam(), ratio: new FakeParam(), attack: new FakeParam(), release: new FakeParam(),
+            });
+            compressors.push(c);
+            return c;
+          },
+          createConvolver: () => Object.assign(new FakeNode(), { buffer: null as unknown }),
+          createBuffer: (_c: number, n: number) => ({ getChannelData: () => new Float32Array(n) }),
+        }
+      : {}),
     decodeAudioData: vi.fn(async (b: ArrayBuffer) => {
       if (new Uint8Array(b)[0] === 255) throw new Error('bad audio');
-      return { tag: 'buf' } as unknown as AudioBuffer;
+      return { tag: 'buf', duration: 100 } as unknown as AudioBuffer;
     }),
   };
-  return { ctx: ctx as unknown as AudioContext, raw: ctx, sources, gains, panners, listener };
+  return { ctx: ctx as unknown as AudioContext, raw: ctx, sources, gains, panners, listener, compressors };
 }
 
 const T = (id: string): Track => ({ id, title: `Title ${id}`, src: `/a/${id}.mp3`, placeholder: true });
@@ -114,7 +131,7 @@ describe('TrackPlayer', () => {
     expect(h.sources[0].started).toBe(1);
     expect(h.panners).toHaveLength(2);
     expect(h.panners.every((x) => x.positionY.value === TWEETER_Y && x.distanceModel === 'inverse' && x.refDistance === 1.5 && x.rolloffFactor === 1)).toBe(true);
-    expect(h.panners.every((x) => x.connected[0] === h.raw.destination)).toBe(true);
+    expect(h.panners.every((x) => x.connected[0] === h.gains[2])).toBe(true); // the shared bus, not the destination
   });
 
   it('panners sit at SPEAKERS including y = TWEETER_Y', () => {
@@ -180,7 +197,7 @@ describe('TrackPlayer', () => {
     expect(h.sources).toHaveLength(2);
     expect(h.sources[0].stopped).toBe(1);
     expect(h.sources[1].started).toBe(1);
-    expect(h.gains[2].gain.value).toBe(1);
+    expect(h.gains[h.gains.length - 1].gain.value).toBe(1);
     expect(h.gains.every((g) => g.gain.curves.length === 0)).toBe(true);
   });
 
@@ -592,5 +609,97 @@ describe('TrackPlayer iPod controls', () => {
     expect(h.raw.state).toBe('suspended');
     p.release();
     expect(h.raw.state).toBe('running');
+  });
+
+  describe('output level', () => {
+    it('scales each speaker feed so two coherent feeds cannot sum past full scale', () => {
+      const h = makeCtx({ full: true });
+      new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+      expect(h.gains[1].gain.value).toBe(SPEAKER_FEED_GAIN);
+      expect(SPEAKER_FEED_GAIN * 2).toBeLessThanOrEqual(1);
+    });
+
+    it('ends in a limiter that feeds the destination, and nothing else feeds the destination', () => {
+      const h = makeCtx({ full: true });
+      new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+      expect(h.compressors).toHaveLength(1);
+      const lim = h.compressors[0];
+      expect(lim.ratio.value).toBeGreaterThanOrEqual(12);
+      expect(lim.connected).toEqual([h.raw.destination]);
+      expect(h.panners.every((x) => x.connected[0] !== h.raw.destination)).toBe(true);
+    });
+
+    it('adds a light room reverb send', () => {
+      const h = makeCtx({ full: true });
+      new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+      expect(h.gains.some((g) => g.gain.value > 0 && g.gain.value <= 0.25 && g.gain.value !== SPEAKER_FEED_GAIN)).toBe(true);
+    });
+
+    it('dispose disconnects the new nodes', () => {
+      const h = makeCtx({ full: true });
+      const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+      p.dispose();
+      expect(h.compressors[0].disconnected).toBe(1);
+      expect(h.gains.slice(0, 3).every((g) => g.disconnected >= 1)).toBe(true);
+    });
+  });
+
+  describe('scrubbing', () => {
+    async function playing() {
+      const h = makeCtx();
+      const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+      await p.play();
+      return { h, p };
+    }
+
+    it('reports 0 for position and duration before anything plays, and seek does nothing', () => {
+      const h = makeCtx();
+      const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, makeFetch());
+      expect([p.position, p.duration]).toEqual([0, 0]);
+      p.seek(10);
+      expect(h.sources).toHaveLength(0);
+    });
+
+    it('position follows the audio clock and duration is the buffer length', async () => {
+      const { h, p } = await playing();
+      expect(p.duration).toBe(100);
+      expect(p.position).toBe(0);
+      (h.raw as { currentTime: number }).currentTime += 12.5;
+      expect(p.position).toBeCloseTo(12.5);
+    });
+
+    it('seek restarts the one source at the offset and cuts the old one', async () => {
+      const { h, p } = await playing();
+      p.seek(40);
+      expect(h.sources).toHaveLength(2);
+      expect(h.sources[0].stopped).toBe(1);
+      expect(h.sources[1].startArgs[0]).toEqual([0, 40]);
+      expect(p.position).toBeCloseTo(40);
+      (h.raw as { currentTime: number }).currentTime += 5;
+      expect(p.position).toBeCloseTo(45);
+    });
+
+    it('seek clamps to the track and ignores non-finite values', async () => {
+      const { h, p } = await playing();
+      p.seek(-5);
+      expect(h.sources[1].startArgs[0][1]).toBe(0);
+      p.seek(1000);
+      expect(h.sources[2].startArgs[0][1] as number).toBeLessThan(100);
+      p.seek(Number.NaN);
+      expect(h.sources).toHaveLength(3);
+    });
+
+    it('position wraps when the track loops', async () => {
+      const { h, p } = await playing();
+      (h.raw as { currentTime: number }).currentTime += 130;
+      expect(p.position).toBeCloseTo(30);
+    });
+
+    it('seek after dispose does nothing', async () => {
+      const { h, p } = await playing();
+      p.dispose();
+      p.seek(10);
+      expect(h.sources).toHaveLength(1);
+    });
   });
 });
