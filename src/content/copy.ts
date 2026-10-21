@@ -163,10 +163,32 @@ export const ROOM = {
   hint: 'WASD or arrow keys to move. Mouse to look (click to capture the mouse). E to use what is nearby. Esc releases the mouse.',
   nowPlaying: 'Now playing',
   audioUnavailable: 'Audio unavailable',
-  nearbyIpod: 'Near the iPod. Press E to play the next track.',
-  nearbyComputer: 'Near the computer. Press E to use it.',
-  ipodButton: 'Play next track (iPod)',
-  computerButton: 'Use the computer',
+  nearbyIpod: 'Near the iPod. Press E to interact.',
+  nearbyComputer: 'Near the computer. Press E to interact.',
+  promptText: 'Press E to interact',
+  promptIpodLabel: 'iPod: press E to interact',
+  promptComputerLabel: 'Computer: press E to interact',
+  skipToSite: 'Skip to site',
   leaveButton: 'Leave the room',
   demoLabel: 'Premonition demo',
+  ipodLabel: 'iPod',
+};
+
+// Short pages shown on the iPod screen; each links to the full page on the site.
+export const IPOD = {
+  openLink: 'Press the centre button to open the page',
+  pages: {
+    services: {
+      title: 'Services',
+      body: 'Production and arrangement, sound design, finishing and finalization, teaching and mentorship.',
+    },
+    about: {
+      title: 'About',
+      body: 'Worlds built from texture, with a human fingerprint. Experience with FL Studio, Ableton, Studio One, Logic Pro, Cubase and Reaper.',
+    },
+    contact: {
+      title: 'Contact',
+      body: 'Send a rough idea, a link to a voice note, or a mood.',
+    },
+  },
 };

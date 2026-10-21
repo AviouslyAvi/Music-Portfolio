@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs module without types
-import { gzipSize, findRoomChunks, checkRoutes, extractChunkUrls, routeFromHtmlPath, checkTotal, BUDGET_BYTES, assertRoutesNonEmpty, run } from './check-budget.mjs';
+import { gzipSize, findRoomChunks, checkRoutes, extractChunkUrls, routeFromHtmlPath, checkTotal, firstTrackPart, oversizedTracks, MAX_TRACK_BYTES, BUDGET_BYTES, assertRoutesNonEmpty, run } from './check-budget.mjs';
 
 describe('gzipSize', () => {
   it('shrinks repetitive data and is positive', () => {
@@ -53,6 +53,26 @@ describe('routeFromHtmlPath', () => {
   it('maps index to / and names to /name', () => {
     expect(routeFromHtmlPath('index.html')).toBe('/');
     expect(routeFromHtmlPath('services.html')).toBe('/services');
+  });
+});
+
+describe('firstTrackPart', () => {
+  const parts = [
+    { name: 'tracks/b.mp3', bytes: 9 },
+    { name: 'tracks/a.mp3', bytes: 5 },
+  ];
+  it('picks the part for the first track id in the tracks source', () => {
+    expect(firstTrackPart(parts, "export const TRACKS = [\n  T('a', 'A'),\n  T('b', 'B'),\n];")).toEqual([{ name: 'tracks/a.mp3', bytes: 5 }]);
+  });
+  it('returns nothing when the id or the file is missing', () => {
+    expect(firstTrackPart(parts, "T('zzz', 'Z')")).toEqual([]);
+    expect(firstTrackPart(parts, '')).toEqual([]);
+  });
+});
+
+describe('oversizedTracks', () => {
+  it('names tracks over the cap only', () => {
+    expect(oversizedTracks([{ name: 'tracks/big.mp3', bytes: MAX_TRACK_BYTES + 1 }, { name: 'tracks/ok.mp3', bytes: MAX_TRACK_BYTES }])).toEqual(['tracks/big.mp3']);
   });
 });
 

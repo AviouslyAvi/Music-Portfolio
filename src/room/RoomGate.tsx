@@ -72,7 +72,10 @@ function writeLeft(): void {
   }
 }
 
-/** Create the audio context and start the playlist inside the click gesture. */
+/**
+ * Create the audio context inside the click gesture, but start nothing: the music
+ * begins only when the visitor presses play on the iPod.
+ */
 function startAudio(onError: (trackId: string) => void): RoomAudio | null {
   try {
     const w = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
@@ -80,9 +83,7 @@ function startAudio(onError: (trackId: string) => void): RoomAudio | null {
     if (!AC) return null;
     const ctx = new AC();
     const player = new TrackPlayer(ctx, TRACKS, ctx.destination);
-    // Subscribe before start() so an early failure (context resume, first fetch) is not missed.
     player.onError((e) => onError(e.trackId));
-    player.start().catch(() => {});
     return { ctx, player };
   } catch {
     return null;

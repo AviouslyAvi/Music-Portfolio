@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { TRACKS } from '../../src/content/tracks';
 
 const STORE = 'https://premonition.avious.co';
-const TRACK_TITLES = ['Placeholder Track One', 'Placeholder Track Two', 'Placeholder Track Three'];
+const TRACK_TITLES = TRACKS.map((t) => t.title);
 const SOUND_LABELS = ['Rising Pad', 'Noise Sweep', 'Tension Lift'];
 
 test.describe('/premonition', () => {
@@ -88,9 +89,10 @@ test.describe('/work', () => {
     await expect(audios).toHaveCount(TRACK_TITLES.length);
     const paused = () => audios.evaluateAll((els) => els.map((e) => (e as HTMLAudioElement).paused));
     await audios.nth(0).evaluate((e) => (e as HTMLAudioElement).play());
-    expect(await paused()).toEqual([false, true, true]);
+    const onlyPlaying = (i: number) => TRACK_TITLES.map((_, j) => j !== i);
+    expect(await paused()).toEqual(onlyPlaying(0));
     await audios.nth(1).evaluate((e) => (e as HTMLAudioElement).play());
-    expect(await paused()).toEqual([true, false, true]);
+    expect(await paused()).toEqual(onlyPlaying(1));
   });
 });
 

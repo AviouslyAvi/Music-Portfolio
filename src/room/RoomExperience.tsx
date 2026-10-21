@@ -5,17 +5,21 @@
 // other bundle. Pure logic lives in movement.ts and layout.ts; this file wires
 // it to the renderer, the input devices and the HUD.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import * as THREE from 'three';
 import { PremonitionDemo } from '@/demo/PremonitionDemo';
 import { ROOM } from '@/content/copy';
 import { buildRoom, type Room } from './buildRoom';
 import { stepPlayer, normalizeYaw, type PlayerState } from './movement';
 import {
-  SOLIDS, ROOM_BOUNDS, START, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable,
+  SOLIDS, ROOM_BOUNDS, START, IPOD_POS, COMPUTER_POS, INTERACT_RADIUS, nearestInteractable, type Interactable,
 } from './layout';
-import { isAudioUnavailable, type TrackPlayer } from './audioEngine';
+import { isAudioUnavailable, DEFAULT_VOLUME, type TrackPlayer } from './audioEngine';
 import { TRACKS } from '@/content/tracks';
-import { Hud, type Interactable } from './Hud';
+import { Hud } from './Hud';
+import { InteractPrompt } from './InteractPrompt';
+import { IpodScreen } from './ipod/IpodScreen';
+import type { IpodAction } from './ipod/menu';
 import styles from './room.module.css';
 
 export type RoomAudio = { ctx: AudioContext; player: TrackPlayer };
@@ -31,8 +35,13 @@ const EASE_MS = 800;
 // Seated in front of the screen, looking down at it a little.
 const DESK_POSE = { x: COMPUTER_POS.x, z: -1.85, yaw: 0, pitch: -0.5 };
 
-type Mode = 'walk' | 'easing' | 'demo';
-type Api = { interact(t: Interactable): void; closeDemo(): void };
+// Close in front of the iPod, looking down at its screen.
+const IPOD_POSE = { x: IPOD_POS.x, z: -2.05, yaw: 0, pitch: -1.0 };
+const VOLUME_STEP = 0.05;
+
+type Pose = { x: number; z: number; yaw: number; pitch: number };
+type Mode = 'walk' | 'easing' | 'demo' | 'ipod';
+type Api = { interact(t: Interactable): void; closeDemo(): void; closeIpod(): void; ipodToComputer(): void };
 
 const FORWARD = new Set(['KeyW', 'ArrowUp']);
 const BACK = new Set(['KeyS', 'ArrowDown']);
@@ -96,11 +105,17 @@ export default function RoomExperience({
   const audioRef = useRef(audio);
   audioRef.current = audio;
 
-  const [nearby, setNearby] = useState<Interactable | null>(null);
+  const ipodPromptRef = useRef<HTMLButtonElement>(null);
+  const computerPromptRef = useRef<HTMLButtonElement>(null);
+  const router = useRouter();
   const [title, setTitle] = useState('');
   const [trackIndex, setTrackIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [volume, setVolume] = useState(DEFAULT_VOLUME);
   const [demoOpen, setDemoOpen] = useState(false);
+  const [ipodOpen, setIpodOpen] = useState(false);
   const wasOpen = useRef(false);
+  const wasIpodOpen = useRef(false);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -155,20 +170,30 @@ export default function RoomExperience({
       let player: PlayerState = { pos: { ...START.pos }, yaw: START.yaw };
       let pitch = 0;
       let mode: Mode = 'walk';
-      let ease: { from: PlayerState; fromPitch: number; start: number } | null = null;
+      let ease: { from: PlayerState; fromPitch: number; start: number; to: Pose; then: 'demo' | 'ipod' | 'walk' } | null = null;
+      let returnPose: Pose = { x: START.pos.x, z: START.pos.z, yaw: START.yaw, pitch: 0 };
       const keys = new Set<string>();
       let locked = false;
       let drag: { x: number; y: number; moved: boolean; wasLocked: boolean } | null = null;
       let lastNearby: Interactable | null = null;
       let lastTitle = '';
+      let lastPlaying = false;
+      let lastVolume = DEFAULT_VOLUME;
+      // Where each floating prompt hangs: just above the object, in world space.
+      built.group.updateMatrixWorld(true);
+      const anchorOf = (o: THREE.Object3D) => {
+        const box = new THREE.Box3().setFromObject(o);
+        const c = box.getCenter(new THREE.Vector3());
+        return new THREE.Vector3(c.x, box.max.y + 0.12, c.z);
+      };
+      const ipodAnchor = anchorOf(built.ipod);
+      const computerAnchor = anchorOf(built.computer);
+      const projected = new THREE.Vector3();
       let lastAttrs = '';
 
-      const ctx = () => audioRef.current?.ctx ?? null;
-      const suspendAudio = () => void ctx()?.suspend().catch(() => {});
-      const resumeAudio = () => {
-        const c = ctx();
-        if (c && c.state === 'suspended') void c.resume().catch(() => {});
-      };
+      // Hidden tab or an overlay: hold the audio. A visitor's own pause is never undone by release.
+      const suspendAudio = () => audioRef.current?.player.hold();
+      const resumeAudio = () => audioRef.current?.player.release();
 
       const exitLock = () => {
         try {
@@ -193,21 +218,40 @@ export default function RoomExperience({
         setDemoOpen(true);
       };
 
-      const interact = (t: Interactable) => {
-        if (mode !== 'walk') return;
-        if (t === 'ipod') {
-          void audioRef.current?.player.next().catch(() => {});
-          return;
-        }
+      const openIpod = () => {
+        mode = 'ipod';
+        ease = null;
+        setIpodOpen(true);
+      };
+
+      const startEase = (to: Pose, then: 'demo' | 'ipod' | 'walk') => {
         exitLock();
         keys.clear();
         drag = null;
         mode = 'easing';
-        ease = { from: { pos: { ...player.pos }, yaw: player.yaw }, fromPitch: pitch, start: -1 };
+        ease = { from: { pos: { ...player.pos }, yaw: player.yaw }, fromPitch: pitch, start: -1, to, then };
+      };
+
+      // Pressing E (or clicking the object or its prompt) zooms the camera in; the
+      // computer opens the plugin screen, the iPod opens the click-wheel iPod.
+      const interact = (t: Interactable) => {
+        if (mode !== 'walk') return;
+        returnPose = { x: player.pos.x, z: player.pos.z, yaw: player.yaw, pitch };
+        startEase(t === 'ipod' ? IPOD_POSE : DESK_POSE, t === 'ipod' ? 'ipod' : 'demo');
       };
 
       apiRef.current = {
         interact,
+        closeIpod() {
+          if (mode !== 'ipod') return;
+          setIpodOpen(false);
+          startEase(returnPose, 'walk');
+        },
+        ipodToComputer() {
+          if (mode !== 'ipod') return;
+          setIpodOpen(false);
+          startEase(DESK_POSE, 'demo');
+        },
         closeDemo() {
           if (mode !== 'demo') return;
           mode = 'walk';
@@ -298,6 +342,27 @@ export default function RoomExperience({
       };
       listen(window, 'resize', onResize);
 
+      // Move a floating prompt to its object's screen position, or hide it.
+      const placePrompt = (el: HTMLButtonElement | null, anchor: THREE.Vector3, show: boolean) => {
+        if (!el) return;
+        let visible = false;
+        if (show) {
+          projected.copy(anchor).project(camera);
+          // In front of the camera: hang the label on the object, kept inside the
+          // screen (up close the object can sit just below the view).
+          if (projected.z > -1 && projected.z < 1) {
+            const cx = Math.max(-0.85, Math.min(0.85, projected.x));
+            const cy = Math.max(-0.7, Math.min(0.8, projected.y));
+            const x = (cx * 0.5 + 0.5) * window.innerWidth;
+            const y = (-cy * 0.5 + 0.5) * window.innerHeight;
+            el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+            visible = true;
+          }
+        }
+        const want = visible ? 'true' : 'false';
+        if (el.dataset.visible !== want) el.dataset.visible = want;
+      };
+
       let last = 0;
       const frame = (now: number) => {
         raf = requestAnimationFrame(frame);
@@ -316,30 +381,49 @@ export default function RoomExperience({
             if (ease.start < 0) ease.start = now;
             const t = reduced ? 1 : Math.min(1, (now - ease.start) / EASE_MS);
             const k = smoothstep(t);
-            const dYaw = normalizeYaw(DESK_POSE.yaw - ease.from.yaw);
+            const to = ease.to;
+            const dYaw = normalizeYaw(to.yaw - ease.from.yaw);
             player = {
-              pos: { x: lerp(ease.from.pos.x, DESK_POSE.x, k), z: lerp(ease.from.pos.z, DESK_POSE.z, k) },
+              pos: { x: lerp(ease.from.pos.x, to.x, k), z: lerp(ease.from.pos.z, to.z, k) },
               yaw: normalizeYaw(ease.from.yaw + dYaw * k),
             };
-            pitch = lerp(ease.fromPitch, DESK_POSE.pitch, k);
-            if (t >= 1) openDemo();
+            pitch = lerp(ease.fromPitch, to.pitch, k);
+            if (t >= 1) {
+              const then = ease.then;
+              ease = null;
+              if (then === 'demo') openDemo();
+              else if (then === 'ipod') openIpod();
+              else {
+                mode = 'walk';
+                keys.clear();
+              }
+            }
           }
 
           camera.position.set(player.pos.x, EYE_HEIGHT, player.pos.z);
           camera.rotation.set(pitch, player.yaw, 0);
           r.render(scene, camera);
 
-          const near = mode === 'walk' ? nearestInteractable(player.pos) : lastNearby;
-          if (near !== lastNearby) {
-            lastNearby = near;
-            setNearby(near);
-          }
+          const near = mode === 'walk' ? nearestInteractable(player.pos) : null;
+          lastNearby = near;
+          placePrompt(ipodPromptRef.current, ipodAnchor, near === 'ipod');
+          placePrompt(computerPromptRef.current, computerAnchor, near === 'computer');
           const a = audioRef.current;
           const tt = a ? a.player.title : '';
           if (tt !== lastTitle) {
             lastTitle = tt;
             setTitle(tt);
             setTrackIndex(a ? a.player.index : 0);
+          }
+          const isPlaying = a ? a.player.playing : false;
+          if (isPlaying !== lastPlaying) {
+            lastPlaying = isPlaying;
+            setPlaying(isPlaying);
+          }
+          const vol = a ? a.player.volume : DEFAULT_VOLUME;
+          if (vol !== lastVolume) {
+            lastVolume = vol;
+            setVolume(vol);
           }
           const x = player.pos.x.toFixed(3);
           const z = player.pos.z.toFixed(3);
@@ -404,11 +488,26 @@ export default function RoomExperience({
     };
   }, []);
 
-  // Focus: into the room on mount, into the demo when it opens, back to the
-  // computer button when it closes.
+  // Focus: into the room on mount, into the demo or the iPod when it opens,
+  // back to the room when it closes.
   useEffect(() => {
     rootRef.current?.focus();
   }, []);
+  useEffect(() => {
+    if (ipodOpen) {
+      wasIpodOpen.current = true;
+      // Escape anywhere puts the iPod down (the iPod itself steps back first when it has focus).
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') apiRef.current?.closeIpod();
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }
+    if (wasIpodOpen.current) {
+      wasIpodOpen.current = false;
+      rootRef.current?.focus();
+    }
+  }, [ipodOpen]);
   useEffect(() => {
     if (demoOpen) {
       wasOpen.current = true;
@@ -425,11 +524,46 @@ export default function RoomExperience({
     }
     if (wasOpen.current) {
       wasOpen.current = false;
-      rootRef.current?.querySelector<HTMLButtonElement>('[data-hud-computer]')?.focus();
+      rootRef.current?.focus();
     }
   }, [demoOpen]);
 
   const onInteract = useCallback((t: Interactable) => apiRef.current?.interact(t), []);
+  const leaveRef0 = useRef(onLeave);
+  leaveRef0.current = onLeave;
+  const onIpodAction = useCallback(
+    (a: IpodAction) => {
+      const player = audioRef.current?.player;
+      switch (a.type) {
+        case 'select-track':
+          void player?.select(a.trackIndex).catch(() => {});
+          break;
+        case 'toggle-play':
+          void player?.togglePlay().catch(() => {});
+          break;
+        case 'step':
+          void player?.step(a.dir).catch(() => {});
+          break;
+        case 'volume':
+          if (player) player.setVolume(Math.round((player.volume + a.delta * VOLUME_STEP) * 100) / 100);
+          break;
+        case 'computer':
+          apiRef.current?.ipodToComputer();
+          break;
+        case 'leave':
+          leaveRef0.current();
+          break;
+        case 'link':
+          leaveRef0.current();
+          router.push(a.href);
+          break;
+        case 'close':
+          apiRef.current?.closeIpod();
+          break;
+      }
+    },
+    [router],
+  );
   // After the demo, finished or skipped, the full site opens: the same path as
   // "Leave the room" (room:left is set and the room unmounts).
   const leaveRef = useRef(onLeave);
@@ -438,23 +572,23 @@ export default function RoomExperience({
 
   return (
     <div ref={rootRef} className={styles.room} role="dialog" aria-modal="true" aria-label="AVIOUS studio room" tabIndex={-1}>
-      <div inert={demoOpen}>
+      <div inert={demoOpen || ipodOpen}>
         <div ref={wrapRef} className={styles.canvasWrap} data-testid="room-canvas" role="img" aria-label={ROOM.canvasLabel} />
-        <Hud
-          nearby={nearby}
-          trackTitle={title}
-          audioError={isAudioUnavailable(audioFailures, TRACKS, trackIndex)}
-          onInteract={onInteract}
-          onLeave={onLeave}
-        />
+        <InteractPrompt ref={ipodPromptRef} target="ipod" onActivate={() => onInteract('ipod')} />
+        <InteractPrompt ref={computerPromptRef} target="computer" onActivate={() => onInteract('computer')} />
       </div>
+      <Hud
+        trackTitle={playing ? title : ''}
+        audioError={isAudioUnavailable(audioFailures, TRACKS, trackIndex)}
+        onSkip={onLeave}
+      />
+      {ipodOpen && (
+        <div className={styles.ipodOverlay} role="dialog" aria-modal="true" aria-label={ROOM.ipodLabel}>
+          <IpodScreen tracks={TRACKS} currentIndex={trackIndex} playing={playing} volume={volume} onAction={onIpodAction} />
+        </div>
+      )}
       {demoOpen && (
         <div ref={overlayRef} className={styles.demoOverlay} role="dialog" aria-modal="true" aria-label={ROOM.demoLabel} tabIndex={-1}>
-          <div className={styles.demoBar}>
-            <button type="button" className={styles.hudBtn} onClick={onLeave}>
-              {ROOM.leaveButton}
-            </button>
-          </div>
           <div className={styles.demoFrame}>
             <PremonitionDemo bootSequence onFinish={onFinish} />
           </div>

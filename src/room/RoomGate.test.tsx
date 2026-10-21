@@ -156,7 +156,7 @@ describe('RoomGate', () => {
     expect(document.activeElement).toBe(main);
   });
 
-  it('Enter tracks, starts audio and mounts the room once, even on double click', async () => {
+  it('Enter tracks, creates the audio player without starting it, and mounts the room once, even on double click', async () => {
     render(<RoomGate />);
     const b = enter();
     fireEvent.click(b);
@@ -165,7 +165,8 @@ describe('RoomGate', () => {
     expect(h.track).toHaveBeenCalledTimes(1);
     expect(h.track).toHaveBeenCalledWith('room_entered');
     expect(h.ctor).toHaveBeenCalledTimes(1);
-    expect(h.start).toHaveBeenCalledTimes(1);
+    // Nothing plays until the visitor presses play on the iPod.
+    expect(h.start).not.toHaveBeenCalled();
     expect(document.querySelector('nav')!.hasAttribute('inert')).toBe(true);
   });
 

@@ -25,6 +25,7 @@ import { SPEAKER_LEFT, SPEAKER_RIGHT } from './layout';
 // positions -> out (the caller passes ctx.destination).
 
 export const CROSSFADE_SECONDS = 1.5;
+export const DEFAULT_VOLUME = 0.8;
 const CURVE_POINTS = 64;
 const SPEAKER_HEIGHT = 1.0;
 
@@ -71,6 +72,12 @@ export class TrackPlayer {
   private settleFade: (() => void) | null = null;
   private disposed = false;
   private _index = 0;
+  private _volume = DEFAULT_VOLUME;
+  // Nothing plays until play() or select() is called (the iPod's play button).
+  // userPaused is the visitor's pause; held is the room suspending audio while
+  // the tab is hidden or an overlay is up. Neither may restart the other's pause.
+  private userPaused = false;
+  private held = false;
 
   constructor(
     private readonly ctx: AudioContext,
@@ -79,6 +86,7 @@ export class TrackPlayer {
     private readonly fetchFn: FetchFn = (u) => fetch(u),
   ) {
     this.master = ctx.createGain();
+    this.master.gain.value = DEFAULT_VOLUME;
     for (const box of [SPEAKER_LEFT, SPEAKER_RIGHT]) {
       const c = center(box);
       const p = ctx.createPanner();
@@ -105,6 +113,88 @@ export class TrackPlayer {
 
   get title(): string {
     return this.tracks[this._index]?.title ?? '';
+  }
+
+  /** True while a track is sounding (started and not paused). */
+  get playing(): boolean {
+    return !this.disposed && this.current !== null && !this.userPaused;
+  }
+
+  get volume(): number {
+    return this._volume;
+  }
+
+  /** 0 to 1; anything else is clamped, NaN becomes 0. */
+  setVolume(v: number): void {
+    if (this.disposed) return;
+    const clamped = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+    this._volume = clamped;
+    this.master.gain.value = clamped;
+  }
+
+  /** Start the selected track, or resume after pause(). */
+  async play(): Promise<void> {
+    if (this.disposed) return;
+    this.userPaused = false;
+    if (!this.startPromise) await this.start();
+    this.applySuspension();
+  }
+
+  pause(): void {
+    if (this.disposed || !this.current) return;
+    this.userPaused = true;
+    this.applySuspension();
+  }
+
+  togglePlay(): Promise<void> {
+    if (this.playing) {
+      this.pause();
+      return Promise.resolve();
+    }
+    return this.play();
+  }
+
+  /**
+   * Previous (-1) or next (+1) track. Before anything has played this only
+   * moves the selection, so nothing is fetched or heard until play().
+   */
+  step(dir: 1 | -1): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    const n = this.tracks.length;
+    if (n < 2) return Promise.resolve();
+    if (!this.startPromise) {
+      this._index = (this._index + dir + n) % n;
+      return Promise.resolve();
+    }
+    if (this.inFlight) return this.inFlight;
+    this.userPaused = false;
+    this.applySuspension();
+    return this.track(() => this.doStep(dir));
+  }
+
+  /** Play track `index` now: starts it, or crossfades to it, or resumes it if it is already current. */
+  select(index: number): Promise<void> {
+    if (this.disposed || !Number.isInteger(index) || index < 0 || index >= this.tracks.length) return Promise.resolve();
+    if (!this.startPromise) {
+      this._index = index;
+      return this.play();
+    }
+    if (index === this._index) return this.play();
+    if (this.inFlight) return this.inFlight;
+    this.userPaused = false;
+    this.applySuspension();
+    return this.track(() => this.doSelect(index));
+  }
+
+  /** The room suspends audio (hidden tab, overlay) without disturbing a visitor's pause. */
+  hold(): void {
+    this.held = true;
+    this.applySuspension();
+  }
+
+  release(): void {
+    this.held = false;
+    this.applySuspension();
   }
 
   onError(cb: (e: { trackId: string }) => void): void {
@@ -150,6 +240,25 @@ export class TrackPlayer {
     return run;
   }
 
+  private track(fn: () => Promise<void>): Promise<void> {
+    const run = this.start().then(fn).finally(() => {
+      if (this.inFlight === run) this.inFlight = null;
+    });
+    this.inFlight = run;
+    return run;
+  }
+
+  private applySuspension(): void {
+    if (this.disposed || !this.startPromise) return;
+    const want = this.userPaused || this.held;
+    try {
+      if (want && this.ctx.state === 'running') void this.ctx.suspend()?.catch?.(() => {});
+      else if (!want && this.ctx.state === 'suspended') void this.ctx.resume()?.catch?.(() => {});
+    } catch {
+      // a context that cannot suspend or resume is left as it is
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -181,23 +290,36 @@ export class TrackPlayer {
         this.emitError(AUDIO_CONTEXT_ERROR);
       }
     }
-    for (let i = 0; i < this.tracks.length; i++) {
+    const n = this.tracks.length;
+    for (let k = 0; k < n; k++) {
+      const i = (this._index + k) % n;
       if (this.disposed) return;
       const buf = await this.load(this.tracks[i]);
       if (this.disposed) return;
       if (!buf) continue;
       if (this.current) return; // never clobber a source something else claimed
       this._index = i;
-      this.current = this.play(buf, 1);
+      this.current = this.startSource(buf, 1);
       return;
     }
   }
 
-  private async doNext(): Promise<void> {
+  private doNext(): Promise<void> {
+    return this.doStep(1);
+  }
+
+  private async doSelect(index: number): Promise<void> {
+    if (this.disposed || !this.current) return;
+    const buf = await this.load(this.tracks[index]);
+    if (this.disposed || !buf) return;
+    await this.fadeTo(buf, index);
+  }
+
+  private async doStep(dir: 1 | -1): Promise<void> {
     if (this.disposed || !this.current) return; // nothing playing: stay silent
     const n = this.tracks.length;
     for (let step = 1; step < n; step++) {
-      const i = (this._index + step) % n;
+      const i = (((this._index + dir * step) % n) + n) % n;
       const buf = await this.load(this.tracks[i]);
       if (this.disposed) return;
       if (!buf) continue;
@@ -223,7 +345,7 @@ export class TrackPlayer {
     }
   }
 
-  private play(buffer: AudioBuffer, initialGain: number): Live {
+  private startSource(buffer: AudioBuffer, initialGain: number): Live {
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
@@ -247,7 +369,7 @@ export class TrackPlayer {
 
   private async fadeTo(buffer: AudioBuffer, index: number): Promise<void> {
     const old = this.current;
-    const incoming = this.play(buffer, 0);
+    const incoming = this.startSource(buffer, 0);
     const outCurve = new Float32Array(CURVE_POINTS);
     const inCurve = new Float32Array(CURVE_POINTS);
     for (let k = 0; k < CURVE_POINTS; k++) {

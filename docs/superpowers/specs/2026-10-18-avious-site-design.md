@@ -133,6 +133,14 @@ The owner's words: "I like the fact that the character zooms into the computer w
 - **Skip to site** stays visible at all times as a small link in the top-right corner (my call; it is the one always-visible control, kept because the original anti-goal forbids a gate). The now-playing line stays as plain text (not a button).
 - Accessibility: the prompt is a real focusable element with an accessible name ("Use the iPod, press E"); E works with the keyboard with or without pointer lock.
 
+### Songs, no autoplay, iPod controls and prompt wording (owner, 2026-10-20, after the E-prompt change)
+
+- **No music plays until the visitor presses play on the iPod.** Entering the room creates the audio context (the Enter click is the required gesture) but starts nothing and fetches no track. The first track is fetched only when play is pressed.
+- **The iPod's songs are 19 of Avi's own tracks**, owner-approved for the room (the owner: "these are all songs that can go in the 3d preview"), transcoded to 128 kbps stereo mp3 in `public/audio/tracks/` from the masters in `My Drive/Audio/All Songs`. Titles in `src/content/tracks.ts` are cleaned file names the owner can rename. One note for the owner: the file `9_1_25_Ne_Yo_Closer_Flip_4` is a flip of someone else's song and is now public with the rest; the earlier rule was that anything with samples or client rights stays off until the owner says so, and the owner has now said so for all of them.
+- **iPod controls** (owner: "an interface that lets you click the controls of the fake ipod to navigate forward and backwards with the song. Also the volume control would be on there."): a click-wheel with clickable Previous, Next, Play and Pause, Menu and a centre Select button; dragging around the ring (or the mouse wheel, or Up and Down) changes the volume on Now Playing (up is louder) and scrolls lists elsewhere; a volume bar with a number is on the Now Playing screen. Default volume 80 percent, 5 percent per notch.
+- **Prompt wording is "Press E to interact"** for both the iPod and the computer.
+- **Budget:** the 2 MB gzipped limit counts the room chunk, the first track and the demo audio; every other track loads one at a time only when chosen, and any single track must stay under 4 MB (`npm run budget` checks both).
+
 ### The iPod
 
 Menu (the owner approved this list; the contents of each page are my call):

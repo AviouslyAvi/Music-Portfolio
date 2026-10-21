@@ -22,6 +22,8 @@ export const SOLIDS: Box[] = [DESK_MAIN, DESK_LEG, SPEAKER_LEFT, SPEAKER_RIGHT];
 export const START: PlayerState = { pos: { x: 0, z: 2.2 }, yaw: 0 };
 
 // Points on the desk surface.
+export type Interactable = 'ipod' | 'computer';
+
 export const IPOD_POS: Vec2 = { x: -0.5, z: -2.7 };
 export const COMPUTER_POS: Vec2 = { x: 0.7, z: -2.7 };
 

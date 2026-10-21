@@ -44,6 +44,27 @@ async function holdKey(page: Page, key: string, ms: number) {
   await page.keyboard.up(key);
 }
 
+// The floating prompts are display:none while hidden, so they are found by attribute, not role.
+const promptOf = (page: Page, target: 'ipod' | 'computer') => page.locator(`[data-prompt="${target}"]`);
+
+/** Walk to the desk; strafe right as well when the computer is the target. */
+async function walkToDesk(page: Page, target: 'ipod' | 'computer') {
+  await holdKey(page, 'w', 2600);
+  if (target === 'computer') await holdKey(page, 'd', 900);
+  const prompt = promptOf(page, target);
+  await expect(prompt).toHaveAttribute('data-visible', 'true');
+  return prompt;
+}
+
+/** Walk to the iPod, press E and wait for the zoomed-in iPod. */
+async function openIpod(page: Page) {
+  await walkToDesk(page, 'ipod');
+  await page.keyboard.press('e');
+  const ipod = page.getByTestId('ipod');
+  await expect(ipod).toBeVisible({ timeout: 10_000 });
+  return ipod;
+}
+
 test.describe('room gate', () => {
   test('offers Enter and Skip, and loads no three.js before Enter', async ({ page }) => {
     const three = watchThree(page);
@@ -93,14 +114,14 @@ test.describe('focus stays in the dialogs', () => {
     await expect(page.locator('#main')).toBeFocused();
   });
 
-  test('in the room the site behind is inert and Tab stays on the HUD', async ({ page }) => {
+  test('in the room the site behind is inert and Tab stays on the room controls', async ({ page }) => {
     await enterRoom(page);
     expect(await navInert(page)).toBe(true);
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press('Tab');
       expect(await focusIn(page, 'nav, #main, footer')).toBe(false);
     }
-    await page.getByRole('button', { name: 'Leave the room' }).click();
+    await page.getByRole('button', { name: 'Skip to site' }).click();
     await expect.poll(() => navInert(page)).toBe(false);
     await expect(page.locator('#main')).toBeFocused();
   });
@@ -114,18 +135,77 @@ test.describe('in the room', () => {
     const z0 = await attr(page, 'data-player-z');
     await holdKey(page, 'w', 500);
     await expect.poll(() => attr(page, 'data-player-z')).toBeLessThan(z0 - 0.1);
-    await expect(page.getByRole('button', { name: 'Leave the room' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Skip to site' })).toBeVisible();
   });
 
-  test('walking to the desk highlights the iPod and E plays the next track', async ({ page }) => {
+  test('the room has no iPod, computer or leave buttons, only Skip to site', async ({ page }) => {
     await enterRoom(page);
-    const ipod = page.getByRole('button', { name: 'Play next track (iPod)' });
-    await expect(ipod).toHaveAttribute('data-nearby', 'false');
+    await expect(page.getByRole('button', { name: 'Skip to site' })).toBeVisible();
+    for (const name of [/play next track/i, /use the computer/i, /leave the room/i]) {
+      await expect(page.getByRole('button', { name })).toHaveCount(0);
+    }
+  });
+
+  test('no music plays, and no track is fetched, until play is pressed on the iPod', async ({ page }) => {
+    const tracks: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().includes('/audio/tracks/')) tracks.push(r.url());
+    });
+    await enterRoom(page);
+    await page.waitForTimeout(1500);
+    expect(tracks).toEqual([]);
+    await expect(page.getByText(/Now playing/)).toHaveCount(0);
+    await openIpod(page);
+    expect(tracks).toEqual([]);
+    await expect(page.getByTestId('ipod').getByText(/Press play/)).toBeVisible();
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await expect(page.getByTestId('ipod').getByText(/Playing/).last()).toBeVisible({ timeout: 15_000 });
+    expect(tracks.length).toBeGreaterThan(0);
+    await expect(page.getByText(/Now playing/)).toBeVisible();
+  });
+
+  test('walking to the desk shows the floating prompt, E zooms into the iPod, next and volume work', async ({ page }) => {
+    await enterRoom(page);
+    const prompt = promptOf(page, 'ipod');
+    await expect(prompt).toHaveAttribute('data-visible', 'false');
     await holdKey(page, 'w', 2600);
-    await expect(ipod).toHaveAttribute('data-nearby', 'true');
-    await expect(page.getByText('Placeholder Track One')).toBeVisible();
+    await expect(prompt).toHaveAttribute('data-visible', 'true');
+    await expect(prompt).toContainText('Press E to interact');
     await page.keyboard.press('e');
-    await expect(page.getByText('Placeholder Track Two')).toBeVisible({ timeout: 10_000 });
+    const ipod = page.getByTestId('ipod');
+    await expect(ipod).toBeVisible({ timeout: 10_000 });
+    await expect(prompt).toHaveAttribute('data-visible', 'false');
+    await expect(ipod.getByText('Space')).toBeVisible();
+    await ipod.getByRole('button', { name: 'Next song' }).click();
+    await expect(ipod.getByText('Park Scene')).toBeVisible();
+    await ipod.getByRole('button', { name: 'Previous song' }).click();
+    await expect(ipod.getByText('Space')).toBeVisible();
+    const vol = ipod.getByRole('progressbar', { name: 'Volume' });
+    await expect(vol).toHaveAttribute('aria-valuenow', '80');
+    await page.keyboard.press('ArrowDown');
+    await expect(vol).toHaveAttribute('aria-valuenow', '75');
+    await page.keyboard.press('ArrowUp');
+    await expect(vol).toHaveAttribute('aria-valuenow', '80');
+  });
+
+  test('Escape steps back through the iPod menu, then puts the iPod down and the prompt returns', async ({ page }) => {
+    await enterRoom(page);
+    const ipod = await openIpod(page);
+    await page.keyboard.press('Escape');
+    await expect(ipod.getByRole('listbox', { name: 'Menu' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(ipod).toHaveCount(0, { timeout: 5_000 });
+    await expect(promptOf(page, 'ipod')).toHaveAttribute('data-visible', 'true', { timeout: 10_000 });
+  });
+
+  test('Leave the room from the iPod menu opens the site', async ({ page }) => {
+    await enterRoom(page);
+    const ipod = await openIpod(page);
+    await page.keyboard.press('Escape');
+    for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expectSiteOpen(page);
+    await expect(ipod).toHaveCount(0);
   });
 
   /** The room is gone and the normal home is in front, with focus on #main. */
@@ -137,9 +217,10 @@ test.describe('in the room', () => {
     expect(await page.evaluate(() => sessionStorage.getItem('room:left'))).toBe('1');
   }
 
-  test('Use the computer opens the demo; Continue to site opens the full site', async ({ page }) => {
+  test('E at the computer opens the demo; Continue to site opens the full site', async ({ page }) => {
     await enterRoom(page);
-    await page.getByRole('button', { name: 'Use the computer' }).click();
+    await walkToDesk(page, 'computer');
+    await page.keyboard.press('e');
     const demo = page.getByRole('dialog', DEMO_DIALOG);
     await expect(demo).toBeVisible({ timeout: 5_000 });
     await demo.getByRole('button', { name: 'Rising Pad' }).click({ timeout: 10_000 });
@@ -150,7 +231,8 @@ test.describe('in the room', () => {
   test('Skip in the demo opens the full site', async ({ page }) => {
     await enterRoom(page);
     const demo = page.getByRole('dialog', DEMO_DIALOG);
-    await page.getByRole('button', { name: 'Use the computer' }).click();
+    await walkToDesk(page, 'computer');
+    await page.keyboard.press('e');
     await expect(demo).toBeVisible();
     await demo.getByRole('button', { name: 'Skip' }).click();
     await expectSiteOpen(page);
@@ -159,15 +241,16 @@ test.describe('in the room', () => {
   test('Escape in the demo skips it and opens the full site', async ({ page }) => {
     await enterRoom(page);
     const demo = page.getByRole('dialog', DEMO_DIALOG);
-    await page.getByRole('button', { name: 'Use the computer' }).click();
+    await walkToDesk(page, 'computer');
+    await page.keyboard.press('e');
     await expect(demo).toBeVisible();
     await page.keyboard.press('Escape');
     await expectSiteOpen(page);
   });
 
-  test('Leave the room removes the canvas and sets room:left', async ({ page }) => {
+  test('Skip to site removes the canvas and sets room:left', async ({ page }) => {
     await enterRoom(page);
-    await page.getByRole('button', { name: 'Leave the room' }).click();
+    await page.getByRole('button', { name: 'Skip to site' }).click();
     await expect(canvas(page)).toHaveCount(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.locator('h1')).toBeVisible();
@@ -179,20 +262,25 @@ test.describe('in the room', () => {
     page.on('pageerror', (e) => errors.push(e.message));
     await page.route('**/audio/tracks/**', (route) => route.fulfill({ status: 404, body: 'missing' }));
     await enterRoom(page);
-    await expect(page.getByText('Audio unavailable')).toBeVisible({ timeout: 10_000 });
+    await openIpod(page);
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await expect(page.getByText('Audio unavailable')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/Now playing/)).toHaveCount(0);
-    await page.getByRole('button', { name: 'Play next track (iPod)' }).click();
-    await expect(page.getByText('Audio unavailable')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('ipod')).toHaveCount(0, { timeout: 5_000 });
+    // Wait for the camera to ease back to walking (the prompt returns when it has).
+    await expect(promptOf(page, 'ipod')).toHaveAttribute('data-visible', 'true', { timeout: 10_000 });
     const z0 = await attr(page, 'data-player-z');
-    await holdKey(page, 'w', 400);
-    await expect.poll(() => attr(page, 'data-player-z')).toBeLessThan(z0 - 0.1);
-    await page.getByRole('button', { name: 'Leave the room' }).click();
+    await holdKey(page, 's', 400);
+    await expect.poll(() => attr(page, 'data-player-z')).toBeGreaterThan(z0 + 0.1);
+    await page.getByRole('button', { name: 'Skip to site' }).click();
     await expect(canvas(page)).toHaveCount(0);
     await expect(page.locator('h1')).toBeVisible();
     expect(errors).toEqual([]);
   });
 
-  test('a refused pointer lock still allows arrow keys and the HUD', async ({ page }) => {
+  test('a refused pointer lock still allows arrow keys and Skip to site', async ({ page }) => {
     await page.addInitScript(() => {
       Element.prototype.requestPointerLock = function () {
         return Promise.reject(new DOMException('denied', 'NotAllowedError'));
@@ -206,8 +294,10 @@ test.describe('in the room', () => {
     const yaw0 = await attr(page, 'data-player-yaw');
     await holdKey(page, 'ArrowLeft', 400);
     await expect.poll(() => attr(page, 'data-player-yaw')).toBeGreaterThan(yaw0 + 0.1);
-    await page.getByRole('button', { name: 'Use the computer' }).click();
-    await expect(page.getByRole('dialog', DEMO_DIALOG)).toBeVisible();
+    // The one always-visible control still works with the pointer lock refused.
+    await page.getByRole('button', { name: 'Skip to site' }).click();
+    await expect(canvas(page)).toHaveCount(0);
+    await expect(page.locator('h1')).toBeVisible();
   });
 });
 

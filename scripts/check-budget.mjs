@@ -1,5 +1,7 @@
 // Budget check, run after `npm run build`.
-//  (a) gzip total of the room chunk(s) plus public/audio/tracks and public/audio/demo must be <= 2 MB.
+//  (a) gzip total of the room chunk(s) plus the FIRST track (the one the iPod loads when play is pressed; every other
+//      track loads one at a time, on demand, never preloaded) plus public/audio/demo must be <= 2 MB.
+//  (a2) every single track must be <= MAX_TRACK_BYTES (4 MB) so an on-demand load stays quick.
 //  (b) no route other than `/` may reference a chunk containing three.js (WebGLRenderer).
 //  (c) `/` must not reference it either: the room chunk is dynamic-only (loaded after Enter).
 // Routes are read from the prerendered HTML in .next/server/app, using every
@@ -11,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 export const BUDGET_BYTES = 2 * 1024 * 1024;
 export const ROOM_MARKER = 'WebGLRenderer';
+export const MAX_TRACK_BYTES = 4 * 1024 * 1024;
 
 export function gzipSize(buf) {
   return gzipSync(buf).length;
@@ -76,6 +79,19 @@ export function listHtml(dir, rel = '') {
   return out;
 }
 
+/** The part named `<dir>/<id>.<ext>` for the first track id in src/content/tracks.ts source text; [] when none matches. */
+export function firstTrackPart(parts, tracksSource) {
+  const m = /T\('([^']+)'/.exec(tracksSource);
+  if (!m) return [];
+  const id = m[1];
+  return parts.filter((p) => p.name.split('/').pop().replace(/\.[^.]+$/, '') === id).slice(0, 1);
+}
+
+/** Names of parts bigger than the per-track cap. */
+export function oversizedTracks(parts, cap = MAX_TRACK_BYTES) {
+  return parts.filter((p) => p.bytes > cap).map((p) => p.name);
+}
+
 export function checkTotal(totalBytes) {
   return { ok: totalBytes <= BUDGET_BYTES, total: totalBytes, limit: BUDGET_BYTES };
 }
@@ -107,9 +123,12 @@ export function run(root = process.cwd()) {
     return 1;
   }
 
+  const trackParts = gzipDir(join(root, 'public/audio/tracks'));
+  const tracksFile = join(root, 'src/content/tracks.ts');
+  const tracksSource = existsSync(tracksFile) ? readFileSync(tracksFile, 'utf8') : '';
   const parts = [
     ...roomChunks.map((c) => ({ name: `room chunk ${c}`, bytes: gzipSize(Buffer.from(chunkMap[c])) })),
-    ...gzipDir(join(root, 'public/audio/tracks')).map((p) => ({ ...p, name: `audio ${p.name}` })),
+    ...firstTrackPart(trackParts, tracksSource).map((p) => ({ ...p, name: `audio (first track) ${p.name}` })),
     ...gzipDir(join(root, 'public/audio/demo')).map((p) => ({ ...p, name: `audio ${p.name}` })),
   ];
   console.log('Gzipped budget parts:');
@@ -123,6 +142,10 @@ export function run(root = process.cwd()) {
     console.error(`FAIL: gzipped total ${kb(total)} exceeds the 2 MB budget`);
     failed = true;
   }
+
+  const tooBig = oversizedTracks(trackParts);
+  for (const name of tooBig) console.error(`FAIL: ${name} is over the ${kb(MAX_TRACK_BYTES)} per-track cap`);
+  if (tooBig.length) failed = true;
 
   const routeToChunks = {};
   for (const f of listHtml(appDir)) {

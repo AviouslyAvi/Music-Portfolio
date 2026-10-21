@@ -79,7 +79,8 @@ function makeCtx(opts: { state?: string; resume?: () => Promise<void>; legacyLis
     currentTime: 10,
     destination: new FakeNode(),
     listener,
-    resume: opts.resume ?? (async () => {}),
+    resume: opts.resume ?? (async () => { (ctx as { state: string }).state = 'running'; }),
+    suspend: async () => { (ctx as { state: string }).state = 'suspended'; },
     createGain: () => {
       const g = new FakeGain();
       gains.push(g);
@@ -438,5 +439,113 @@ describe('isAudioUnavailable', () => {
   });
   it('is true when the audio context could not resume', () => {
     expect(isAudioUnavailable(['audio-context'], T, 0)).toBe(true);
+  });
+});
+
+describe('TrackPlayer iPod controls', () => {
+  const mk = (fetchFn = makeFetch()) => {
+    const h = makeCtx();
+    const p = new TrackPlayer(h.ctx, TRACKS, h.raw.destination as unknown as AudioNode, fetchFn);
+    return { h, p, fetchFn };
+  };
+
+  it('plays nothing until play() is called', async () => {
+    const { h, p, fetchFn } = mk();
+    await settle(50);
+    expect(h.sources).toHaveLength(0);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(p.playing).toBe(false);
+    await p.play();
+    expect(h.sources).toHaveLength(1);
+    expect(p.playing).toBe(true);
+  });
+
+  it('step() before play() only moves the selection, wrapping both ways, and loads nothing', async () => {
+    const { h, p, fetchFn } = mk();
+    await p.step(-1);
+    expect(p.index).toBe(2);
+    await p.step(1);
+    await p.step(1);
+    expect(p.index).toBe(1);
+    expect(h.sources).toHaveLength(0);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('play() starts from the selected track', async () => {
+    const { h, p } = mk();
+    await p.step(1);
+    await p.play();
+    expect(p.title).toBe('Title b');
+    expect(h.sources).toHaveLength(1);
+  });
+
+  it('pause() suspends the context and play() resumes it without a second source', async () => {
+    const { h, p } = mk();
+    await p.play();
+    p.pause();
+    expect(p.playing).toBe(false);
+    expect(h.raw.state).toBe('suspended');
+    await p.play();
+    expect(p.playing).toBe(true);
+    expect(h.raw.state).toBe('running');
+    expect(h.sources).toHaveLength(1);
+  });
+
+  it('step(-1) while playing crossfades back to the previous track', async () => {
+    const { h, p } = mk();
+    await p.play();
+    const run = p.step(-1);
+    await settle();
+    await run;
+    expect(p.index).toBe(2);
+    expect(h.sources).toHaveLength(2);
+    expect(h.sources[0].stopped).toBe(1);
+  });
+
+  it('select(i) while playing crossfades to that track; selecting the current one does not add a source', async () => {
+    const { h, p } = mk();
+    await p.play();
+    const run = p.select(2);
+    await settle();
+    await run;
+    expect(p.index).toBe(2);
+    expect(h.sources).toHaveLength(2);
+    await p.select(2);
+    expect(h.sources).toHaveLength(2);
+  });
+
+  it('select(i) before play() starts that track', async () => {
+    const { h, p } = mk();
+    await p.select(1);
+    expect(p.title).toBe('Title b');
+    expect(p.playing).toBe(true);
+    expect(h.sources).toHaveLength(1);
+  });
+
+  it('setVolume clamps to 0..1 and drives the master gain', async () => {
+    const { h, p } = mk();
+    p.setVolume(0.3);
+    expect(p.volume).toBeCloseTo(0.3);
+    expect(h.gains[0].gain.value).toBeCloseTo(0.3);
+    p.setVolume(5);
+    expect(p.volume).toBe(1);
+    p.setVolume(-1);
+    expect(p.volume).toBe(0);
+    p.setVolume(Number.NaN);
+    expect(p.volume).toBe(0);
+  });
+
+  it('hold() and release() never restart a track the visitor paused', async () => {
+    const { h, p } = mk();
+    await p.play();
+    p.pause();
+    p.hold();
+    p.release();
+    expect(h.raw.state).toBe('suspended');
+    await p.play();
+    p.hold();
+    expect(h.raw.state).toBe('suspended');
+    p.release();
+    expect(h.raw.state).toBe('running');
   });
 });
