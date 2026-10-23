@@ -7,22 +7,21 @@ describe('shouldOfferRoom', () => {
   it('offers the room to a capable desktop', () => {
     expect(shouldOfferRoom(good)).toBe(true);
   });
-  const cases: [string, Partial<Env>][] = [
-    ['no webgl', { webgl: false }],
+  it('declines only without webgl', () => {
+    expect(shouldOfferRoom({ ...good, webgl: false })).toBe(false);
+  });
+  const stillOffered: [string, Partial<Env>][] = [
     ['reduced motion', { reducedMotion: true }],
     ['coarse pointer', { coarsePointer: true }],
-    ['narrow viewport', { viewportWidth: 900 }],
+    ['narrow viewport', { viewportWidth: 390 }],
     ['low memory', { deviceMemory: 2 }],
     ['few cores', { hardwareConcurrency: 2 }],
   ];
-  for (const [name, patch] of cases) {
-    it(`declines with ${name}`, () => {
-      expect(shouldOfferRoom({ ...good, ...patch })).toBe(false);
+  for (const [name, patch] of stillOffered) {
+    it(`still offers with ${name} (phones get the room too)`, () => {
+      expect(shouldOfferRoom({ ...good, ...patch })).toBe(true);
     });
   }
-  it('offers when memory and cores are unknown', () => {
-    expect(shouldOfferRoom({ ...good, deviceMemory: undefined, hardwareConcurrency: undefined })).toBe(true);
-  });
 });
 
 describe('detectEnv', () => {

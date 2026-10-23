@@ -28,6 +28,7 @@ import { Terminal } from './sequence/Terminal';
 import { Portal } from './sequence/Portal';
 import { dollyProgress, PORTAL_MS } from './sequence/portalMath';
 import { attachHeadphones, poseHeadphones, HEADPHONE_DROP_MS } from './sequence/headphones';
+import { TouchControls, type TouchMove } from './TouchControls';
 import styles from './room.module.css';
 
 // Loaded only when the visitor sits down: the plugin UI and its engine stay out of the room chunk.
@@ -124,6 +125,7 @@ export default function RoomExperience({
   const wrapRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
+  const touchMoveRef = useRef<TouchMove>({ forward: 0, strafe: 0 });
   const failRef = useRef(onFail);
   failRef.current = onFail;
   const audioRef = useRef(audio);
@@ -357,8 +359,8 @@ export default function RoomExperience({
       const interact = (t: Interactable) => {
         if (mode !== 'walk') return;
         if (t === 'door') {
-          // The door at the back of the room leads out to the site, the same as Skip.
-          leaveRef.current();
+          // The door is the way out, and the way out is Premonition (the same place the portal leads).
+          navigateRef.current(LINKS.premonitionStore);
           return;
         }
         if (t === 'lamp' || t === 'switch') {
@@ -469,6 +471,39 @@ export default function RoomExperience({
         else if (!d.wasLocked) requestLock();
       });
 
+      // Touch: drag the view to look; a tap (no drag) uses what it lands on, if in reach.
+      let touch: { id: number; x: number; y: number; moved: boolean } | null = null;
+      listen(canvas, 'touchstart', (e: TouchEvent) => {
+        e.preventDefault();
+        if (touch) return;
+        const t = e.changedTouches[0];
+        touch = { id: t.identifier, x: t.clientX, y: t.clientY, moved: false };
+      });
+      listen(canvas, 'touchmove', (e: TouchEvent) => {
+        e.preventDefault();
+        const t = touch && Array.from(e.changedTouches).find((c) => c.identifier === touch!.id);
+        if (!touch || !t) return;
+        const dx = t.clientX - touch.x;
+        const dy = t.clientY - touch.y;
+        if (!touch.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD * 2) return;
+        touch.moved = true;
+        look(dx, dy);
+        touch.x = t.clientX;
+        touch.y = t.clientY;
+      });
+      const endTouch = (e: TouchEvent, tap: boolean) => {
+        e.preventDefault();
+        const t = touch && Array.from(e.changedTouches).find((c) => c.identifier === touch!.id);
+        if (!touch || !t) return;
+        const was = touch;
+        touch = null;
+        if (!tap || was.moved || mode !== 'walk') return;
+        const hit = pick(t.clientX, t.clientY);
+        if (hit && inClickRange(player.pos, hit)) interact(hit);
+      };
+      listen(canvas, 'touchend', (e: TouchEvent) => endTouch(e, true));
+      listen(canvas, 'touchcancel', (e: TouchEvent) => endTouch(e, false));
+
       const onResize = () => {
         r.setSize(window.innerWidth, window.innerHeight, false);
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -505,9 +540,10 @@ export default function RoomExperience({
           last = now;
           if (mode === 'walk') {
             const has = (s: Set<string>) => [...s].some((k) => keys.has(k));
+            const tm = touchMoveRef.current;
             const want = {
-              forward: (has(FORWARD) ? 1 : 0) - (has(BACK) ? 1 : 0),
-              strafe: (has(RIGHT) ? 1 : 0) - (has(LEFT) ? 1 : 0),
+              forward: Math.max(-1, Math.min(1, (has(FORWARD) ? 1 : 0) - (has(BACK) ? 1 : 0) + tm.forward)),
+              strafe: Math.max(-1, Math.min(1, (has(RIGHT) ? 1 : 0) - (has(LEFT) ? 1 : 0) + tm.strafe)),
               turn: (has(TURN_LEFT) ? 1 : 0) - (has(TURN_RIGHT) ? 1 : 0),
             };
             const a = reduced ? 1 : 1 - Math.exp(-dt * MOVE_RESPONSE);
@@ -746,8 +782,6 @@ export default function RoomExperience({
     },
     [router],
   );
-  // Skip to site works in every stage: the machine moves to leaving, which unmounts the room once.
-  const onSkip = useCallback(() => dispatchSeq({ type: 'SKIP' }), [dispatchSeq]);
   const onBootDone = useCallback(() => dispatchSeq({ type: 'BOOT_DONE' }), [dispatchSeq]);
   const onPortalDone = useCallback(() => dispatchSeq({ type: 'PORTAL_DONE' }), [dispatchSeq]);
   const onSoundPlayed = useCallback((id: string) => dispatchSeq({ type: 'SOUND_PLAYED', id }), [dispatchSeq]);
@@ -772,10 +806,14 @@ export default function RoomExperience({
         <InteractPrompt ref={lampPromptRef} target="lamp" onActivate={() => onInteract('lamp')} />
         <InteractPrompt ref={switchPromptRef} target="switch" onActivate={() => onInteract('switch')} />
       </div>
+      <TouchControls moveRef={touchMoveRef} />
+      <div className={styles.rotate} role="alert">
+        <span className={styles.rotateIcon} aria-hidden="true" />
+        <p>{ROOM.rotate}</p>
+      </div>
       <Hud
         trackTitle={playing ? title : ''}
         audioError={isAudioUnavailable(audioFailures, TRACKS, trackIndex)}
-        onSkip={onSkip}
       />
       {ipodOpen && (
         <div className={styles.ipodOverlay} role="dialog" aria-modal="true" aria-label={ROOM.ipodLabel}>

@@ -52,28 +52,11 @@ class RoomBoundary extends Component<{ onError: () => void; children: ReactNode 
   }
 }
 
-const LEFT_KEY = 'room:left';
 type GateState = 'checking' | 'unavailable' | 'room' | 'left';
 
 // A failure is not persisted (it may be transient), but the room is not offered
 // again during this page view.
 let failedThisView = false;
-
-function readLeft(): boolean {
-  try {
-    return window.sessionStorage.getItem(LEFT_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeLeft(): void {
-  try {
-    window.sessionStorage.setItem(LEFT_KEY, '1');
-  } catch {
-    // storage may be blocked; the overlay is simply offered again next time
-  }
-}
 
 /**
  * Create the audio context inside the click gesture, but start nothing: the music
@@ -148,7 +131,7 @@ export function RoomGate() {
   useEffect(() => {
     let offer = false;
     try {
-      offer = !failedThisView && !readLeft() && shouldOfferRoom(detectEnv(window));
+      offer = !failedThisView && shouldOfferRoom(detectEnv(window));
     } catch {
       offer = false;
     }
@@ -197,8 +180,8 @@ export function RoomGate() {
   );
 
   const finish = useCallback((persist: boolean) => {
-    if (persist) writeLeft();
-    else failedThisView = true;
+    // Leaving on purpose is not remembered: the next visit opens in the room again.
+    if (!persist) failedThisView = true;
     stopAudio(audioRef.current);
     audioRef.current = null;
     setAudio(null);

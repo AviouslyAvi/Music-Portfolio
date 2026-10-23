@@ -7,17 +7,10 @@ export type Env = {
   hardwareConcurrency?: number;
 };
 
-// Builder tunes these.
-export const MIN_VIEWPORT_WIDTH = 1024;
-export const MIN_DEVICE_MEMORY_GB = 4;
-export const MIN_CORES = 4;
-
+// The room is the site's front door on every device; WebGL is the only hard requirement.
+// Motion preference, pointer type, size and hardware are handled inside the room, not gated here.
 export function shouldOfferRoom(env: Env): boolean {
-  if (!env.webgl || env.reducedMotion || env.coarsePointer) return false;
-  if (env.viewportWidth < MIN_VIEWPORT_WIDTH) return false;
-  if (env.deviceMemory !== undefined && env.deviceMemory < MIN_DEVICE_MEMORY_GB) return false;
-  if (env.hardwareConcurrency !== undefined && env.hardwareConcurrency < MIN_CORES) return false;
-  return true;
+  return env.webgl;
 }
 
 function hasWebgl(win: Window): boolean {

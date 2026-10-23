@@ -118,10 +118,10 @@ describe('RoomGate', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renders nothing once room:left is set', () => {
+  it('opens the room even if room:left is set (the site never shows first)', async () => {
     sessionStorage.setItem('room:left', '1');
-    const { container } = render(<RoomGate />);
-    expect(container.innerHTML).toBe('');
+    render(<RoomGate />);
+    expect(await screen.findByTestId('room-stub')).toBeTruthy();
   });
 
   it('makes the site behind the room inert, and restores it with focus on main after leaving', async () => {
@@ -153,7 +153,7 @@ describe('RoomGate', () => {
     await screen.findByTestId('room-stub');
     act(() => h.roomProps[0].onLeave());
     expect(screen.queryByTestId('room-stub')).toBeNull();
-    expect(sessionStorage.getItem('room:left')).toBe('1');
+    expect(sessionStorage.getItem('room:left')).toBeNull();
     expect(h.dispose).toHaveBeenCalled();
     expect(h.close).toHaveBeenCalled();
     expect(document.body.style.overflow).toBe('');

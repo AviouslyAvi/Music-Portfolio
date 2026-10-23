@@ -111,7 +111,33 @@
 @media (prefers-reduced-motion: reduce) { .seqOverlay { transition: none; } }
 
 /* Until the gate has decided, cover the page where the room will open, so the portfolio never flashes first. */
-.preCover { display: none; }
-@media (min-width: 1024px) and (pointer: fine) {
-  .preCover { display: block; position: fixed; inset: 0; z-index: 100; background: var(--charcoal); }
+.preCover { display: block; position: fixed; inset: 0; z-index: 100; background: var(--charcoal); }
+
+/* Touch devices: look by dragging the view, walk with the stick, landscape only */
+.canvasWrap { touch-action: none; }
+.hintTouch { display: none; }
+.stick, .rotate { display: none; }
+@media (pointer: coarse) {
+  .hint { display: none; }
+  .hintTouch { display: block; color: var(--muted); font-size: 0.72rem; }
+  .stick {
+    display: block; position: absolute; left: max(1.5rem, env(safe-area-inset-left)); bottom: 1.5rem; z-index: 110;
+    width: 7.5rem; height: 7.5rem; border-radius: 50%; touch-action: none; user-select: none;
+    border: 1px solid rgba(233, 168, 95, 0.5); background: rgba(35, 38, 42, 0.55); backdrop-filter: blur(4px);
+  }
+  .stickKnob {
+    position: absolute; left: 50%; top: 50%; width: 3rem; height: 3rem; margin: -1.5rem 0 0 -1.5rem; border-radius: 50%;
+    background: rgba(233, 168, 95, 0.75); box-shadow: 0 0 0.9rem rgba(233, 168, 95, 0.35); pointer-events: none;
+  }
+  .hud { left: auto; right: 1rem; bottom: 1rem; max-width: 45vw; }
 }
+@media (pointer: coarse) and (orientation: portrait) {
+  .rotate {
+    display: flex; position: absolute; inset: 0; z-index: 200; flex-direction: column; align-items: center; justify-content: center;
+    gap: 1.25rem; padding: 2rem; text-align: center; background: var(--charcoal); color: var(--text); font-size: 1rem; line-height: 1.5;
+  }
+  .rotateIcon { width: 2.2rem; height: 3.8rem; border: 2px solid var(--lamp); border-radius: 0.45rem; animation: tilt 2.4s ease-in-out infinite; }
+  .stick { display: none; }
+}
+@keyframes tilt { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+@media (prefers-reduced-motion: reduce) { .rotateIcon { animation: none; } }

@@ -212,29 +212,6 @@ describe('RoomExperience sequence', () => {
     expect(audio.player.release).toHaveBeenCalledTimes(1);
   });
 
-  it('Skip to site works in seating, boot, plugin and portal and unmounts once', async () => {
-    for (const upTo of ['seating', 'boot', 'plugin', 'portal'] as const) {
-      cleanup();
-      h.plugin = null;
-      const { audio, navigate, onLeave } = await setup();
-      if (upTo === 'seating') sit();
-      else if (upTo === 'boot') {
-        sit();
-        await frames(2600);
-      } else {
-        await toPlugin();
-        if (upTo === 'portal') playAll();
-      }
-      expect(stage()).toBe(upTo);
-      fireEvent.click(screen.getByRole('button', { name: 'Skip to site' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Skip to site' }));
-      expect(onLeave).toHaveBeenCalledTimes(1);
-      expect(audio.player.release).toHaveBeenCalledTimes(1);
-      await frames(5000);
-      expect(navigate).not.toHaveBeenCalled();
-    }
-  });
-
   it('the third SOUND_PLAYED shows the portal and, at PORTAL_DONE, sets room:left then navigates to the Premonition URL', async () => {
     const { navigate } = await setup();
     await toPlugin();
@@ -271,7 +248,6 @@ describe('RoomExperience sequence', () => {
     await frames(6000);
     expect(stage()).toBe('boot');
     expect(screen.getByText('engine failed to load')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Skip to site' })).toBeTruthy();
     expect(navigate).not.toHaveBeenCalled();
   });
 
